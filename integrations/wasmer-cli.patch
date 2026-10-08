@@ -1,0 +1,339 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index d43f96911..b97fbf2a0 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -71,14 +71,17 @@ members = [
+   "tests/lib/wast",
+   "tests/wasmer-argus",
+ ]
+-exclude = ["./lib/cli/tests/packages/axum", "lib/wild", "lib/webgpu"]
++exclude = ["./lib/cli/tests/packages/axum", "lib/wild", "lib/webgpu", "lib/gui"]
+ resolver = "2"
+ 
+-# `lib/webgpu` is a repository of its own that names its Wasmer dependencies
+-# by version, not by path. In this workspace they are this checkout's crates.
++# `lib/webgpu` and `lib/gui` are repositories of their own that name their
++# Wasmer dependencies by version, not by path. In this workspace they are this
++# checkout's crates, and the WebGPU that GUI windows are drawn on with is the
++# one checked out here.
+ [patch.crates-io]
+ wasmer = { path = "lib/api" }
+ wasmer-wasix = { path = "lib/wasix" }
++wasmer-webgpu = { path = "lib/webgpu" }
+ 
+ [workspace.package]
+ authors = ["Wasmer Engineering Team <engineering@wasmer.io>"]
+diff --git a/lib/cli/Cargo.toml b/lib/cli/Cargo.toml
+index e5f55bab0..b3c6b422e 100644
+--- a/lib/cli/Cargo.toml
++++ b/lib/cli/Cargo.toml
+@@ -117,6 +117,20 @@ napi-v8 = ["dep:wasmer-napi", "wasmer-napi/wasix"]
+ webgpu = ["dep:wasmer-webgpu", "wasmer-webgpu/wasix"]
+ # Shows the surfaces WebGPU guests present to in windows.
+ webgpu-window = ["webgpu", "wasmer-webgpu/window"]
++# Windows, input, text entry and the clipboard (<wasmer/gui.h>) for WASIX
++# guests. On its own the windows are headless: they work, and nobody sees them.
++gui = ["dep:wasmer-gui", "wasmer-gui/wasix"]
++# Opens the windows of GUI guests on the desktop, with the system clipboard.
++# WebGPU guests draw on them, and so do guests without a GPU, with frames of
++# their own.
++gui-window = [
++  "gui",
++  "webgpu",
++  "wasmer-gui/winit",
++  "wasmer-gui/clipboard",
++  "wasmer-gui/webgpu",
++  "wasmer-gui/pixels",
++]
+ wasm-c-api = ["dep:wasmer-c-api-imports", "wasmer-c-api-imports/wasix"]
+ 
+ # Optional
+@@ -156,6 +170,7 @@ wasmer-types = { version = "=7.4.2", path = "../types", features = [
+ ] }
+ wasmer-napi = { version = "0.704.2", path = "../napi", optional = true }
+ wasmer-webgpu = { version = "0.704", path = "../webgpu", optional = true }
++wasmer-gui = { version = "0.704", path = "../gui", optional = true }
+ wasmer-c-api-imports = { version = "=7.4.2", path = "../c-api-imports", optional = true, default-features = false }
+ virtual-fs = { version = "0.704.2", path = "../virtual-fs", default-features = false, features = [
+   "host-fs",
+diff --git a/lib/cli/src/commands/run/mod.rs b/lib/cli/src/commands/run/mod.rs
+index 09c31ab41..b7d1f62c4 100644
+--- a/lib/cli/src/commands/run/mod.rs
++++ b/lib/cli/src/commands/run/mod.rs
+@@ -110,6 +110,15 @@ pub struct Run {
+     #[cfg(feature = "webgpu")]
+     #[clap(skip)]
+     webgpu: std::sync::OnceLock<wasmer_webgpu::WebGpuCtx>,
++    /// Enable experimental GUI imports (windows, input, clipboard) for
++    /// modules that require them
++    #[clap(long = "experimental-gui")]
++    experimental_gui: bool,
++    /// What this run grants its guests of the window system. Shared by every
++    /// instance the run creates.
++    #[cfg(feature = "gui")]
++    #[clap(skip)]
++    gui: std::sync::OnceLock<wasmer_gui::GuiCtx>,
+     /// The file, URL, or package to run.
+     #[clap(value_parser = CliPackageSource::infer)]
+     input: CliPackageSource,
+@@ -231,6 +240,82 @@ impl Run {
+         }
+     }
+ 
++    #[cfg(feature = "gui")]
++    fn maybe_wrap_runtime_with_gui(
++        &self,
++        module: &Module,
++        runtime: Arc<dyn Runtime + Send + Sync>,
++    ) -> Result<Arc<dyn Runtime + Send + Sync>, Error> {
++        use anyhow::ensure;
++
++        if wasmer_gui::module_needs_gui(module).is_none() {
++            return Ok(runtime);
++        }
++        ensure!(
++            self.experimental_gui,
++            "This module opens windows. Re-run with '--experimental-gui' to enable the experimental GUI runtime."
++        );
++
++        // Without a window system of its own (`execute_with_gui_windows`),
++        // the run's windows are headless.
++        let ctx = self.gui.get_or_init(wasmer_gui::GuiCtx::default);
++        Ok(wrap_runtime_with_gui(ctx, runtime))
++    }
++
++    #[cfg(not(feature = "gui"))]
++    fn maybe_wrap_runtime_with_gui(
++        &self,
++        module: &Module,
++        runtime: Arc<dyn Runtime + Send + Sync>,
++    ) -> Result<Arc<dyn Runtime + Send + Sync>, Error> {
++        anyhow::ensure!(
++            !module
++                .imports()
++                .any(|import| import.module().starts_with("wasmer_gui_v")),
++            "This module opens windows, which this build of Wasmer does not include."
++        );
++        Ok(runtime)
++    }
++
++    /// Runs the command with its windows on the desktop. The window system's
++    /// loop belongs to the main thread, so the command itself moves to
++    /// another one; the loop is only started when a guest opens a window.
++    /// WebGPU guests draw on those windows.
++    #[cfg(feature = "gui-window")]
++    fn execute_with_gui_windows(self, output: Output) -> ! {
++        use std::time::Duration;
++        use wasmer_gui::native::{CloseBehavior, GuiExit, GuiMainThread, NativeOptions};
++
++        let (main_thread, windows) = GuiMainThread::with_options(NativeOptions {
++            // A guest is asked to close, and decides. One that does not even
++            // read the request is stuck, and the run ends.
++            close: CloseBehavior::RequestThenEnd(Duration::from_secs(2)),
++            ..NativeOptions::default()
++        });
++        // Surfaces a guest creates for anything but one of its windows are
++        // drawn, and shown to nobody.
++        let offscreen: Arc<dyn wasmer_webgpu::surface::SurfaceProvider> =
++            Arc::new(wasmer_webgpu::surface::HeadlessSurfaces::default());
++        let webgpu = wasmer_webgpu::WebGpuCtx::builder()
++            .surface_provider(windows.surfaces(Some(offscreen)))
++            .build();
++        let gui = wasmer_gui::GuiCtx::builder()
++            .window_system(Arc::new(windows))
++            .build();
++        let (gui_control, webgpu_control) = (gui.runtime_control(), webgpu.runtime_control());
++        let _ = self.gui.set(gui);
++        let _ = self.webgpu.set(webgpu);
++        match main_thread.run(move || self.execute_inner(output)) {
++            Ok(GuiExit::Finished(result)) => exit_with_wasi_exit_code(result),
++            Ok(GuiExit::Closed) => {
++                gui_control.terminate_all();
++                webgpu_control.terminate_all();
++                std::process::exit(0)
++            }
++            Err(error) => exit_with_wasi_exit_code(Err(error)),
++        }
++    }
++
+     #[cfg(feature = "wasm-c-api")]
+     fn module_uses_wasm_c_api(module: &Module) -> bool {
+         wasmer_c_api_imports::module_wasm_c_api_version_used(module).is_some()
+@@ -261,10 +346,16 @@ impl Run {
+     ) -> Result<Arc<dyn Runtime + Send + Sync>, Error> {
+         let runtime = self.maybe_wrap_runtime_with_napi(module, runtime)?;
+         let runtime = self.maybe_wrap_runtime_with_webgpu(module, runtime)?;
++        let runtime = self.maybe_wrap_runtime_with_gui(module, runtime)?;
+         self.maybe_wrap_runtime_with_wasm_c_api(module, runtime)
+     }
+ 
+-    #[cfg(any(feature = "napi-v8", feature = "wasm-c-api", feature = "webgpu"))]
++    #[cfg(any(
++        feature = "napi-v8",
++        feature = "wasm-c-api",
++        feature = "webgpu",
++        feature = "gui"
++    ))]
+     fn resolve_wasi_command_module(
+         &self,
+         command_name: &str,
+@@ -278,6 +369,12 @@ impl Run {
+     }
+ 
+     pub fn execute(self, output: Output) -> ! {
++        // A GUI's windows are also what its WebGPU surfaces are drawn on, so
++        // this comes before the windows WebGPU would open for itself.
++        #[cfg(feature = "gui-window")]
++        if self.experimental_gui {
++            self.execute_with_gui_windows(output)
++        }
+         #[cfg(feature = "webgpu-window")]
+         if self.experimental_webgpu {
+             self.execute_with_windows(output)
+@@ -593,7 +690,12 @@ impl Run {
+         runtime: Arc<dyn Runtime + Send + Sync>,
+     ) -> Result<(), Error> {
+         // The command's imports decide which host APIs its runtime provides.
+-        #[cfg(any(feature = "napi-v8", feature = "wasm-c-api", feature = "webgpu"))]
++        #[cfg(any(
++            feature = "napi-v8",
++            feature = "wasm-c-api",
++            feature = "webgpu",
++            feature = "gui"
++        ))]
+         let (module, runtime) = {
+             let module = self.resolve_wasi_command_module(command_name, pkg, &runtime)?;
+             let runtime = self.maybe_wrap_runtime_for_module(&module, runtime)?;
+@@ -602,7 +704,12 @@ impl Run {
+ 
+         // Assume webcs are always WASIX
+         let mut runner = self.build_wasi_runner(&runtime, true)?;
+-        #[cfg(any(feature = "napi-v8", feature = "wasm-c-api", feature = "webgpu"))]
++        #[cfg(any(
++            feature = "napi-v8",
++            feature = "wasm-c-api",
++            feature = "webgpu",
++            feature = "gui"
++        ))]
+         self.configure_wasi_runner_for_napi(&module, &mut runner);
+         Runner::run_command(&mut runner, command_name, pkg, runtime)
+     }
+@@ -778,6 +885,16 @@ fn wrap_runtime_with_webgpu(
+     Arc::new(OverriddenRuntime::new(runtime).with_instantiation_hook(ctx.runtime_hooks()))
+ }
+ 
++/// Makes `runtime` provide the GUI imports, within what `ctx` grants, to the
++/// instances it creates for modules that import them.
++#[cfg(feature = "gui")]
++fn wrap_runtime_with_gui(
++    ctx: &wasmer_gui::GuiCtx,
++    runtime: Arc<dyn Runtime + Send + Sync>,
++) -> Arc<dyn Runtime + Send + Sync> {
++    Arc::new(OverriddenRuntime::new(runtime).with_instantiation_hook(ctx.runtime_hooks()))
++}
++
+ #[cfg(feature = "wasm-c-api")]
+ fn maybe_wrap_runtime_with_wasm_c_api(
+     module: &Module,
+@@ -1090,3 +1207,101 @@ mod webgpu_tests {
+         }
+     }
+ }
++
++#[cfg(all(test, feature = "gui"))]
++mod gui_tests {
++    use std::sync::Arc;
++
++    use super::*;
++    use wasmer_wasix::{
++        PluggableRuntime, WasiError, runtime::task_manager::tokio::TokioTaskManager,
++    };
++
++    /// Checks the ABI version, opens a connection to the window system and a
++    /// window, and closes both. An import this host does not know has to
++    /// answer 0, "not implemented".
++    fn gui_guest() -> Vec<u8> {
++        wat2wasm(
++            br#"(module
++                (import "wasi_snapshot_preview1" "proc_exit" (func $proc_exit (param i32)))
++                (import "wasmer_gui_v0" "wguiGetVersion" (func $version (result i32)))
++                (import "wasmer_gui_v0" "wguiCreateInstance" (func $create_instance (param i32 i32) (result i32)))
++                (import "wasmer_gui_v0" "wguiInstanceCreateWindow" (func $create_window (param i32 i32 i32) (result i32)))
++                (import "wasmer_gui_v0" "wguiWindowDestroy" (func $destroy_window (param i32)))
++                (import "wasmer_gui_v0" "wguiInstanceDestroy" (func $destroy_instance (param i32)))
++                (import "wasmer_gui_v0" "wguiFromALaterHeader" (func $later (param i32) (result i32)))
++
++                (memory (export "memory") 1)
++
++                (func (export "_start")
++                    ;; The major version is in the upper half.
++                    (if (i32.shr_u (call $version) (i32.const 16))
++                        (then (call $proc_exit (i32.const 10))))
++
++                    ;; WGUIStatus_Success is 1; the handles are written at 16 and 20.
++                    (if (i32.ne (call $create_instance (i32.const 0) (i32.const 16)) (i32.const 1))
++                        (then (call $proc_exit (i32.const 11))))
++                    (if (i32.ne
++                            (call $create_window (i32.load (i32.const 16)) (i32.const 0) (i32.const 20))
++                            (i32.const 1))
++                        (then (call $proc_exit (i32.const 12))))
++
++                    (if (call $later (i32.const 0))
++                        (then (call $proc_exit (i32.const 13))))
++
++                    (call $destroy_window (i32.load (i32.const 20)))
++                    (call $destroy_instance (i32.load (i32.const 16)))
++                )
++            )"#,
++        )
++        .expect("guest wat parses")
++        .into_owned()
++    }
++
++    #[test]
++    fn cli_gui_runtime_wrapper_runs_wasix_guest() {
++        let wasm = gui_guest();
++        let store = Store::default();
++        let module = Module::new(&store, &wasm).expect("guest module compiles");
++        assert!(wasmer_gui::module_needs_gui(&module).is_some());
++
++        let tokio_runtime = tokio::runtime::Builder::new_multi_thread()
++            .enable_all()
++            .build()
++            .expect("tokio runtime starts");
++        let _guard = tokio_runtime.enter();
++        let mut base_runtime = PluggableRuntime::new(Arc::new(TokioTaskManager::new(
++            tokio_runtime.handle().clone(),
++        )));
++        base_runtime.set_engine(store.engine().clone());
++
++        let ctx = wasmer_gui::GuiCtx::default();
++        let runtime = wrap_runtime_with_gui(&ctx, Arc::new(base_runtime));
++        let mut import_store = runtime.new_store();
++        let mut import_store_mut = import_store.as_store_mut();
++        let (imports, _state) = runtime
++            .additional_imports(&module, &mut import_store_mut)
++            .expect("gui imports are created");
++        assert!(imports.exists("wasmer_gui_v0", "wguiCreateInstance"));
++
++        let result = WasiRunner::new().run_wasm(
++            RuntimeOrEngine::Runtime(runtime),
++            "gui-cli-smoke",
++            module,
++            ModuleHash::new(&wasm),
++        );
++
++        match result {
++            Ok(()) => {}
++            Err(err) => {
++                if let Some(WasiError::Exit(code)) = err.downcast_ref::<WasiError>() {
++                    panic!("guest exited with status {code}");
++                }
++                panic!("guest failed: {err:?}");
++            }
++        }
++        // Nothing of the guest is left behind.
++        assert_eq!(ctx.usage().windows, 0);
++        assert_eq!(ctx.usage().instances, 0);
++    }
++}

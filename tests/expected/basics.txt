@@ -1,0 +1,21 @@
+host Headless, version 0.1
+WindowResized w1 800x600 scale=1 changed=Size|ScaleFactor [Synthetic]
+WindowFocusGained w1
+KeyDown w1 ShiftLeft key=Shift mods=Shift|LeftShift location=Left
+ModifiersChanged w1 mods=Shift|LeftShift
+KeyDown w1 KeyA key='A' base='a' mods=Shift|LeftShift text="A"
+KeyDown w1 KeyA key='A' base='a' mods=Shift|LeftShift flags=Repeat text="A"
+KeyUp w1 KeyA key='A' base='a' mods=Shift|LeftShift
+KeyUp w1 ShiftLeft key=Shift location=Left
+ModifiersChanged w1 mods=0
+PointerEnter w1 id=1 Mouse flags=Primary buttons=0 at=10,10 delta=0,0 pressure=0
+PointerMotion w1 id=1 Mouse flags=Primary buttons=0 at=20,15 delta=10,5 pressure=0
+PointerDown w1 id=1 Mouse flags=Primary|InContact button=1 buttons=Primary at=20,15 delta=0,0 pressure=0.5 clicks=1
+PointerMotion w1 id=1 Mouse flags=Primary|InContact buttons=Primary at=25,15 delta=5,0 pressure=0.5
+PointerUp w1 id=1 Mouse flags=Primary button=1 buttons=0 at=25,15 delta=0,0 pressure=0 clicks=1
+Wheel w1 Line phase=None delta=0,1 at=25,15
+WindowResized w1 1024x768 scale=1 changed=Size
+WindowFocusLost w1
+WindowCloseRequested w1
+closing at 1024x768, flags=Visible|Resizable|Decorated|Hovered
+done

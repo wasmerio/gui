@@ -1,0 +1,14 @@
+host Headless, version 0.1
+WindowResized w1 800x600 scale=1 changed=Size|ScaleFactor [Synthetic]
+WindowFocusGained w1
+ClipboardChanged Clipboard flags=0
+KeyDown w1 ControlLeft key=Control mods=Control|LeftControl location=Left
+ModifiersChanged w1 mods=Control|LeftControl
+KeyDown w1 KeyV key='v' mods=Control|LeftControl
+paste: Denied
+KeyUp w1 KeyV key='v' mods=Control|LeftControl
+KeyUp w1 ControlLeft key=Control location=Left
+ModifiersChanged w1 mods=0
+WindowCloseRequested w1
+closing at 800x600, flags=Visible|Resizable|Decorated|Focused
+done

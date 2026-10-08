@@ -1,0 +1,64 @@
+{
+ "options": {
+  "scale": 2,
+  "display": [
+   2880,
+   1800
+  ]
+ },
+ "steps": [
+  {
+   "focus": true
+  },
+  {
+   "enter": [
+    100,
+    60
+   ]
+  },
+  {
+   "move": [
+    300,
+    200
+   ]
+  },
+  {
+   "down": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "up": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "expect": [
+    "cursor-shape Default",
+    "pixels 1280x960",
+    "text-input Normal at 20,40 4x32"
+   ]
+  },
+  {
+   "down": {
+    "code": "F7",
+    "key": "F7"
+   }
+  },
+  {
+   "up": {
+    "code": "F7",
+    "key": "F7"
+   }
+  },
+  {
+   "resize": [
+    1000,
+    500
+   ]
+  },
+  "close"
+ ]
+}

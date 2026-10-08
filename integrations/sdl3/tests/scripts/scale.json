@@ -1,0 +1,18 @@
+{
+  "options": { "scale": 2, "display": [2880, 1800] },
+  "steps": [
+    { "focus": true },
+    { "enter": [100, 60] },
+    { "move": [300, 200] },
+    { "press": 1 },
+    { "release": 1 },
+    { "down": { "code": "F4", "key": "F4" } },
+    { "up": { "code": "F4", "key": "F4" } },
+    { "down": { "code": "F7", "key": "F7" } },
+    { "up": { "code": "F7", "key": "F7" } },
+    { "resize": [1000, 500] },
+    { "down": { "code": "F1", "key": "F1" } },
+    { "up": { "code": "F1", "key": "F1" } },
+    "close"
+  ]
+}

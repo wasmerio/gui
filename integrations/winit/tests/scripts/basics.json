@@ -1,0 +1,20 @@
+{
+  "steps": [
+    { "focus": true },
+    { "down": { "code": "ShiftLeft", "key": "Shift", "location": "left", "mods": ["shift", "left_shift"] } },
+    { "down": { "code": "KeyA", "key": "A", "base": "a", "text": "A" } },
+    { "down": { "code": "KeyA", "key": "A", "base": "a", "text": "A" } },
+    { "up": { "code": "KeyA", "key": "A", "base": "a" } },
+    { "up": { "code": "ShiftLeft", "key": "Shift", "location": "left", "mods": [] } },
+    { "up": { "code": "KeyZ" } },
+    { "enter": [10, 10] },
+    { "move": [20, 15] },
+    { "press": 1 },
+    { "move": [25, 15] },
+    { "release": 1 },
+    { "wheel": [0, 1] },
+    { "resize": [1024, 768] },
+    { "focus": false },
+    "close"
+  ]
+}

@@ -1,0 +1,8 @@
+the first display is the primary one: yes
+opened at 320x200 logical units
+visible: yes, resizable: yes, decorated: yes
+on a display: yes
+selector: 37 bytes, starts with wgui:
+resized to 400x250 logical units
+asked to draw
+done

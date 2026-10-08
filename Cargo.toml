@@ -1,0 +1,139 @@
+[package]
+name = "wasmer-gui"
+version = "0.704.0"
+description = "Windows, input, text entry and the clipboard for WASIX guests running on the Wasmer WebAssembly runtime"
+edition = "2024"
+license = "MIT"
+repository = "https://github.com/wasmerio/gui"
+exclude = [
+    "tests/programs/out",
+    "tests/programs/gpu/out",
+    "tests/browser/node_modules",
+    "examples/out",
+    "dist",
+    "integrations/sdl3/work",
+    "integrations/sdl3/tests/out",
+    "integrations/sdl3/imgui/out",
+    "integrations/winit/work",
+    "integrations/winit/tests/out",
+    "integrations/winit/example/out",
+    "integrations/winit/tests/winit_events/target",
+    "sys",
+]
+
+[features]
+default = []
+# Implements the WASIX runtime's `InstantiationHook` for `GuiRuntimeHooks`.
+wasix = ["dep:wasmer-wasix"]
+# Native windows, through winit. Its event loop needs the process's main
+# thread: see `native::GuiMainThread`.
+winit = ["dep:winit"]
+# The system clipboard, for native windows.
+clipboard = ["dep:arboard"]
+# Lets guests without a GPU draw in native windows
+# (`wguiWindowPresentPixels`), through softbuffer.
+pixels = ["winit", "dep:softbuffer"]
+# Lets wasmer-webgpu draw on this crate's windows: a `SurfaceProvider` for each
+# window system (native only; in a browser the canvases are shared instead).
+webgpu = ["dep:wasmer-webgpu", "dep:raw-window-handle"]
+# The browser's window system: canvases of the page as windows, when this
+# crate is compiled as part of a wasm32-unknown-unknown wasm-bindgen module.
+# Inert on native targets.
+js = ["dep:js-sys", "dep:wasm-bindgen", "wasmer/js-default"]
+# Standalone runner (`gui_wasmer`) and the helpers the tests use.
+cli = [
+  "wasix",
+  "dep:serde",
+  "dep:serde_json",
+  "dep:tokio",
+  "dep:virtual-fs",
+  "dep:wasmer-types",
+]
+
+[dependencies]
+anyhow = "1"
+# What the host shares between the thread that produces input and the guest's
+# threads is lock-free: in a browser the producer is the page's own thread,
+# which may not wait for a lock.
+crossbeam-queue = "0.3"
+# Named by version, resolved by the embedding workspace: Wasmer's own checkout
+# patches these to its path crates, the SDK and this repository's standalone
+# builds patch them to one pinned Wasmer revision (see `[patch.crates-io]`
+# below).
+wasmer = { version = "7.4", default-features = false }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+wasmer = { version = "7.4", default-features = false, features = ["sys-default"] }
+wasmer-wasix = { version = "0.704", default-features = false, features = ["sys"], optional = true }
+arboard = { version = "3", default-features = false, optional = true }
+raw-window-handle = { version = "0.6", optional = true }
+wasmer-webgpu = { version = "0.704", default-features = false, features = ["wasix"], optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+virtual-fs = { version = "0.704", optional = true }
+softbuffer = { version = "0.4", optional = true }
+winit = { version = "0.30", optional = true }
+wasmer-types = { version = "7.4", optional = true }
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = { version = "0.3", optional = true }
+wasm-bindgen = { version = "0.2.120", optional = true }
+wasmer-wasix = { version = "0.704", default-features = false, features = ["js"], optional = true }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+wat = "1"
+
+[[bin]]
+name = "gui_wasmer"
+path = "src/bin/gui_wasmer.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "abi_sweep"
+path = "tests/abi_sweep.rs"
+
+[[test]]
+name = "embedder_tests"
+path = "tests/embedder_tests.rs"
+required-features = ["cli"]
+
+# Opens real windows, so it runs on the main thread and only when asked to
+# (see the file).
+[[test]]
+name = "native_windows"
+path = "tests/native_windows.rs"
+harness = false
+required-features = ["cli", "winit"]
+
+[[test]]
+name = "manifest_tests"
+path = "tests/manifest_tests.rs"
+required-features = ["cli"]
+
+# Windows drawn on with WebGPU: needs a GPU adapter (`make test-gpu`).
+[[test]]
+name = "gpu_tests"
+path = "tests/gpu_tests.rs"
+required-features = ["cli", "webgpu"]
+
+# This repository builds on its own. When the crate is consumed by path from
+# another workspace (the Wasmer SDK), that workspace's own patches apply and
+# this section is ignored.
+[workspace]
+
+[patch.crates-io]
+# Its sibling in the Wasmer SDK's checkout, where the two are developed side
+# by side.
+wasmer-webgpu = { path = "../webgpu" }
+virtual-fs = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+virtual-mio = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+virtual-net = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer-config = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer-package = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer-wasix = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+wasmer-wasix-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }

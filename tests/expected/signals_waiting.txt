@@ -1,0 +1,3 @@
+in a loop that only waits
+SIGUSR1 reached it
+done

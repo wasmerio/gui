@@ -1,0 +1,16 @@
+[package]
+name = "wasmer-gui-sys"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Windows and input for WASIX programs: the declarations of <wasmer/gui.h> for Rust"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/wasmerio/gui"
+keywords = ["wasix", "wasmer", "windowing", "gui"]
+categories = ["external-ffi-bindings", "gui", "wasm"]
+
+# A crate of its own, whatever directory it is checked out in.
+[workspace]
+
+[dependencies]

@@ -1,0 +1,12 @@
+{
+  "options": { "clipboard_sync": false, "clipboard_read": "allow", "shortcut": "super" },
+  "steps": [
+    { "focus": true },
+    { "clipboard": "fetched on request" },
+    { "down": { "code": "MetaLeft", "key": "Meta", "location": "left", "mods": ["super", "left_super"] } },
+    { "down": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "MetaLeft", "key": "Meta", "location": "left", "mods": [] } },
+    "close"
+  ]
+}

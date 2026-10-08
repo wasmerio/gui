@@ -1,0 +1,98 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 71f7c58..0138f6a 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -293,7 +293,10 @@ xkbcommon-dl = "0.4.2"
+ orbclient = { version = "0.3.47", default-features = false }
+ redox_syscall = "0.4.1"
+ 
+-[target.'cfg(target_family = "wasm")'.dependencies]
++# Web only. WASIX (`wasm32-wasmer-wasi`) is also `target_family = "wasm"`, but has no JS host, so
++# the `wasm-bindgen` family must not be pulled in there (`target_os = "unknown"` is exactly the
++# `web_platform` alias from `build.rs`).
++[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dependencies]
+ js-sys = "0.3.70"
+ pin-project = "1"
+ wasm-bindgen = "0.2.93"
+@@ -351,11 +354,16 @@ web_sys = { package = "web-sys", version = "0.3.70", features = [
+     "Worker",
+ ] }
+ 
+-[target.'cfg(all(target_family = "wasm", target_feature = "atomics"))'.dependencies]
++# WASIX: windows and input come from the Wasmer runtime, through the imports
++# this crate declares.
++[target.'cfg(all(target_os = "wasi", target_vendor = "wasmer"))'.dependencies]
++wasmer-gui-sys = "0.1"
++
++[target.'cfg(all(target_family = "wasm", target_os = "unknown", target_feature = "atomics"))'.dependencies]
+ atomic-waker = "1"
+ concurrent-queue = { version = "2", default-features = false }
+ 
+-[target.'cfg(target_family = "wasm")'.dev-dependencies]
++[target.'cfg(all(target_family = "wasm", target_os = "unknown"))'.dev-dependencies]
+ console_error_panic_hook = "0.1"
+ tracing-web = "0.1"
+ 
+diff --git a/build.rs b/build.rs
+index 6a4528b..7c2d529 100644
+--- a/build.rs
++++ b/build.rs
+@@ -15,6 +15,8 @@ fn main() {
+         apple: { any(target_os = "ios", target_os = "macos") },
+         free_unix: { all(unix, not(apple), not(android_platform), not(target_os = "emscripten")) },
+         redox: { target_os = "redox" },
++        // WASIX (`wasm32-wasmer-wasi`): `target_family = "wasm"`, but *not* the Web.
++        wasix_platform: { all(target_os = "wasi", target_vendor = "wasmer") },
+ 
+         // Native displays.
+         x11_platform: { all(feature = "x11", free_unix, not(redox)) },
+diff --git a/src/platform/mod.rs b/src/platform/mod.rs
+index 4f59303..121b117 100644
+--- a/src/platform/mod.rs
++++ b/src/platform/mod.rs
+@@ -12,6 +12,8 @@ pub mod macos;
+ pub mod orbital;
+ #[cfg(any(x11_platform, wayland_platform, docsrs))]
+ pub mod startup_notify;
++#[cfg(any(wasix_platform, docsrs))]
++pub mod wasix;
+ #[cfg(any(wayland_platform, docsrs))]
+ pub mod wayland;
+ #[cfg(any(web_platform, docsrs))]
+@@ -47,6 +49,7 @@ pub mod pump_events;
+     x11_platform,
+     wayland_platform,
+     orbital_platform,
++    wasix_platform,
+     docsrs
+ ))]
+ pub mod modifier_supplement;
+diff --git a/src/platform_impl/mod.rs b/src/platform_impl/mod.rs
+index 3bfce68..9a3dfff 100644
+--- a/src/platform_impl/mod.rs
++++ b/src/platform_impl/mod.rs
+@@ -11,6 +11,8 @@ mod linux;
+ mod macos;
+ #[cfg(orbital_platform)]
+ mod orbital;
++#[cfg(wasix_platform)]
++mod wasix;
+ #[cfg(web_platform)]
+ mod web;
+ #[cfg(windows_platform)]
+@@ -26,6 +28,8 @@ use linux as platform;
+ use macos as platform;
+ #[cfg(orbital_platform)]
+ use orbital as platform;
++#[cfg(wasix_platform)]
++use wasix as platform;
+ #[cfg(web_platform)]
+ use web as platform;
+ #[cfg(windows_platform)]
+@@ -74,5 +78,6 @@ impl From<Fullscreen> for RootFullscreen {
+     not(wayland_platform),
+     not(web_platform),
+     not(orbital_platform),
++    not(wasix_platform),
+ ))]
+ compile_error!("The platform you're compiling for is not supported by winit");

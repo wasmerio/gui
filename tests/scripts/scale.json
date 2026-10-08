@@ -1,0 +1,8 @@
+{
+  "options": { "scale": 2, "targets": ["canvas"], "top_level": false, "display": [2880, 1800] },
+  "steps": [
+    { "theme": "dark" },
+    { "resize": [1000, 700] },
+    "close"
+  ]
+}

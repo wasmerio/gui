@@ -1,0 +1,14 @@
+resumed
+monitor "Headless" 1920x1080 scale 1 at 60000 mHz, primary
+window 640x480 scale 1 theme Some(Light), surface selector wgui: and 32 more
+Resized 640x480
+RedrawRequested: drew 640x480
+Focused true
+Touch Started id=2 at 64,48 force=None
+Touch Started id=3 at 320,240 force=None
+Touch Moved id=2 at 128,96 force=None
+Touch Ended id=3 at 320,240 force=None
+Touch Cancelled id=2 at 128,96 force=None
+CloseRequested
+exiting at 640x480 after 1 frames
+done

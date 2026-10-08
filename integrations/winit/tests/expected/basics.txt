@@ -1,0 +1,26 @@
+resumed
+monitor "Headless" 1920x1080 scale 1 at 60000 mHz, primary
+window 640x480 scale 1 theme Some(Light), surface selector wgui: and 32 more
+Resized 640x480
+RedrawRequested: drew 640x480
+Focused true
+KeyboardInput Pressed ShiftLeft key=Shift unmodified=Shift text=None all=None Left
+ModifiersChanged ModifiersState(SHIFT) left shift Pressed
+KeyboardInput Pressed KeyA key="A" unmodified="a" text=Some("A") all=Some("A") Standard
+KeyboardInput Pressed KeyA key="A" unmodified="a" text=Some("A") all=Some("A") Standard repeat
+KeyboardInput Released KeyA key="A" unmodified="a" text=None all=None Standard
+KeyboardInput Released ShiftLeft key=Shift unmodified=Shift text=None all=None Left
+ModifiersChanged ModifiersState(0x0) left shift Unknown
+CursorEntered
+CursorMoved 10,10
+CursorMoved 20,15
+MouseInput Pressed Left
+CursorMoved 25,15
+MouseInput Released Left
+MouseWheel lines 0,-1 Moved
+Resized 1024x768
+RedrawRequested: drew 1024x768
+Focused false
+CloseRequested
+exiting at 1024x768 after 2 frames
+done

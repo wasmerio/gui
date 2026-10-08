@@ -1,0 +1,11 @@
+{
+  "steps": [
+    { "focus": true },
+    { "touch": { "id": 1, "phase": "down", "at": [64, 48] } },
+    { "touch": { "id": 2, "phase": "down", "at": [320, 240] } },
+    { "touch": { "id": 1, "phase": "move", "at": [128, 96] } },
+    { "touch": { "id": 2, "phase": "up", "at": [320, 240] } },
+    { "touch": { "id": 1, "phase": "cancel", "at": [128, 96] } },
+    "close"
+  ]
+}

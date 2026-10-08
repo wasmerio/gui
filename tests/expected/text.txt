@@ -1,0 +1,41 @@
+host Headless, version 0.1
+WindowResized w1 800x600 scale=1 changed=Size|ScaleFactor [Synthetic]
+WindowFocusGained w1
+KeyDown w1 KeyA key='a' text="a"
+KeyUp w1 KeyA key='a'
+KeyDown w1 F4 key=F4
+TextInputState w1 state=Active
+KeyUp w1 F4 key=F4
+KeyDown w1 KeyH key='h' text="h"
+TextCommit w1 "h" flags=FromKey
+KeyUp w1 KeyH key='h'
+KeyDown w1 KeyI key='i' text="i"
+TextCommit w1 "i" flags=FromKey
+KeyUp w1 KeyI key='i'
+KeyDown w1 Enter key=Enter text="\x0D"
+KeyUp w1 Enter key=Enter
+KeyDown w1 KeyN key=Process flags=Composing
+TextComposition w1 "に" cursor=3..3
+KeyUp w1 KeyN key=Process
+TextComposition w1 "にほん" cursor=9..9
+TextComposition w1 "日本" cursor=none
+TextCommit w1 "日本"
+KeyDown w1 Backquote key=Dead(U+0300)
+KeyUp w1 Backquote key=Dead(U+0300)
+KeyDown w1 KeyE key='è' base='e' text="è"
+TextCommit w1 "è" flags=FromKey
+KeyUp w1 KeyE key='è' base='e'
+KeyDown w1 ControlLeft key=Control mods=Control|LeftControl location=Left
+ModifiersChanged w1 mods=Control|LeftControl
+KeyDown w1 KeyC key='c' mods=Control|LeftControl text="c"
+KeyUp w1 KeyC key='c' mods=Control|LeftControl
+KeyUp w1 ControlLeft key=Control location=Left
+ModifiersChanged w1 mods=0
+KeyDown w1 F4 key=F4
+TextInputState w1 state=0
+KeyUp w1 F4 key=F4
+KeyDown w1 KeyZ key='z' text="z"
+KeyUp w1 KeyZ key='z'
+WindowCloseRequested w1
+closing at 800x600, flags=Visible|Resizable|Decorated|Focused
+done

@@ -1,0 +1,12 @@
+{
+  "name": "wasmer-gui-browser-tests",
+  "private": true,
+  "type": "module",
+  "description": "Tests the page half of wasmer-gui (js/gui_page.js) in Chrome, with a core that records what it is told.",
+  "scripts": {
+    "test": "node --test --test-timeout=120000 page.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

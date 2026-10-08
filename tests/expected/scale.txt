@@ -1,0 +1,7 @@
+host Headless, version 0.1
+WindowResized w1 800x600 scale=2 changed=Size|ScaleFactor [Synthetic]
+WindowThemeChanged w1 theme=Dark
+WindowResized w1 1000x700 scale=2 changed=Size
+WindowCloseRequested w1
+closing at 1000x700, flags=Visible|Resizable|Decorated
+done

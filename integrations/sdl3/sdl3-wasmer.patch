@@ -1,0 +1,112 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index a3048f4..02e4c97 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -375,6 +375,7 @@ set_option(SDL_OPENVR              "Use OpenVR video driver" OFF)
+ dep_option(SDL_KMSDRM              "Use KMS DRM video driver" ${UNIX_SYS} "SDL_VIDEO" OFF)
+ dep_option(SDL_KMSDRM_SHARED       "Dynamically load KMS DRM support" ON "SDL_KMSDRM;SDL_DEPS_SHARED" OFF)
+ set_option(SDL_OFFSCREEN           "Use offscreen video driver" ON)
++dep_option(SDL_WASMER_VIDEO        "Use Wasmer GUI video driver" ON "SDL_VIDEO;WASI" OFF)
+ dep_option(SDL_DUMMYCAMERA         "Support the dummy camera driver" ON SDL_CAMERA OFF)
+ option_string(SDL_BACKGROUNDING_SIGNAL "number to use for magic backgrounding signal or 'OFF'" OFF)
+ option_string(SDL_FOREGROUNDING_SIGNAL "number to use for magic foregrounding signal or 'OFF'" OFF)
+@@ -1807,6 +1808,31 @@ elseif(WASI)
+   sdl_glob_sources("${SDL3_SOURCE_DIR}/src/locale/unix/*.c")
+   set(HAVE_SDL_LOCALE TRUE)
+ 
++  if(SDL_VIDEO AND SDL_WASMER_VIDEO)
++    # <wasmer/gui.h> declares the host's imports itself: there is nothing to link.
++    set(SDL_WASMER_GUI_INCLUDE_DIR "" CACHE PATH "Directory that has wasmer/gui.h, when the sysroot does not")
++    cmake_push_check_state()
++    if(SDL_WASMER_GUI_INCLUDE_DIR)
++      list(APPEND CMAKE_REQUIRED_INCLUDES "${SDL_WASMER_GUI_INCLUDE_DIR}")
++    endif()
++    check_include_file("wasmer/gui.h" HAVE_WASMER_GUI_H)
++    cmake_pop_check_state()
++    if(HAVE_WASMER_GUI_H)
++      if(SDL_WASMER_GUI_INCLUDE_DIR)
++        sdl_include_directories(PRIVATE SYSTEM "${SDL_WASMER_GUI_INCLUDE_DIR}")
++      endif()
++      set(SDL_VIDEO_DRIVER_WASMER 1)
++      sdl_glob_sources(
++        "${SDL3_SOURCE_DIR}/src/video/wasmer/*.c"
++        "${SDL3_SOURCE_DIR}/src/video/wasmer/*.h"
++      )
++      set(HAVE_WASMER_VIDEO TRUE)
++      set(HAVE_SDL_VIDEO TRUE)
++    else()
++      message(STATUS "wasmer/gui.h not found: set SDL_WASMER_GUI_INCLUDE_DIR to build the Wasmer video driver")
++    endif()
++  endif()
++
+ elseif(UNIX AND NOT APPLE AND NOT RISCOS AND NOT HAIKU)
+ 
+   set(SDL_DISABLE_DLOPEN_NOTES TRUE)
+diff --git a/include/build_config/SDL_build_config.h.cmake b/include/build_config/SDL_build_config.h.cmake
+index 17cb8f2..b78ad21 100644
+--- a/include/build_config/SDL_build_config.h.cmake
++++ b/include/build_config/SDL_build_config.h.cmake
+@@ -399,6 +399,7 @@
+ #cmakedefine SDL_VIDEO_DRIVER_COCOA 1
+ #cmakedefine SDL_VIDEO_DRIVER_DUMMY 1
+ #cmakedefine SDL_VIDEO_DRIVER_EMSCRIPTEN 1
++#cmakedefine SDL_VIDEO_DRIVER_WASMER 1
+ #cmakedefine SDL_VIDEO_DRIVER_HAIKU 1
+ #cmakedefine SDL_VIDEO_DRIVER_KMSDRM 1
+ #cmakedefine SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC @SDL_VIDEO_DRIVER_KMSDRM_DYNAMIC@
+diff --git a/src/render/software/SDL_render_sw.c b/src/render/software/SDL_render_sw.c
+index ce3a3f5..ce07e93 100644
+--- a/src/render/software/SDL_render_sw.c
++++ b/src/render/software/SDL_render_sw.c
+@@ -1035,6 +1035,17 @@ static bool SW_RenderPresent(SDL_Renderer *renderer)
+     return SDL_UpdateWindowSurface(window);
+ }
+ 
++static bool SW_SetVSync(SDL_Renderer *renderer, const int vsync)
++{
++    // A video driver that can pace the window framebuffer on the display
++    // does it better than sleeping between frames can. Where there is none,
++    // this fails and vsync is simulated, as before.
++    if (!renderer->window) {
++        return SDL_Unsupported();
++    }
++    return SDL_SetWindowSurfaceVSync(renderer->window, vsync);
++}
++
+ static void SW_DestroyTexture(SDL_Renderer *renderer, SDL_Texture *texture)
+ {
+     SDL_Surface *surface = (SDL_Surface *)texture->internal;
+@@ -1202,6 +1213,7 @@ bool SW_CreateRendererForSurface(SDL_Renderer *renderer, SDL_Surface *surface, S
+     renderer->RunCommandQueue = SW_RunCommandQueue;
+     renderer->RenderReadPixels = SW_RenderReadPixels;
+     renderer->RenderPresent = SW_RenderPresent;
++    renderer->SetVSync = SW_SetVSync;
+     renderer->DestroyTexture = SW_DestroyTexture;
+     renderer->DestroyRenderer = SW_DestroyRenderer;
+     renderer->internal = data;
+diff --git a/src/video/SDL_sysvideo.h b/src/video/SDL_sysvideo.h
+index 1fdc5bf..1956dad 100644
+--- a/src/video/SDL_sysvideo.h
++++ b/src/video/SDL_sysvideo.h
+@@ -543,6 +543,7 @@ extern VideoBootStrap Wayland_preferred_bootstrap;
+ extern VideoBootStrap Wayland_bootstrap;
+ extern VideoBootStrap VIVANTE_bootstrap;
+ extern VideoBootStrap Emscripten_bootstrap;
++extern VideoBootStrap WASMER_bootstrap;
+ extern VideoBootStrap OFFSCREEN_bootstrap;
+ extern VideoBootStrap QNX_bootstrap;
+ extern VideoBootStrap OPENVR_bootstrap;
+diff --git a/src/video/SDL_video.c b/src/video/SDL_video.c
+index 88f833e..c701a88 100644
+--- a/src/video/SDL_video.c
++++ b/src/video/SDL_video.c
+@@ -146,6 +146,9 @@ static VideoBootStrap *bootstrap[] = {
+ #ifdef SDL_VIDEO_DRIVER_QNX
+     &QNX_bootstrap,
+ #endif
++#ifdef SDL_VIDEO_DRIVER_WASMER
++    &WASMER_bootstrap,
++#endif
+ #ifdef SDL_VIDEO_DRIVER_OFFSCREEN
+     &OFFSCREEN_bootstrap,
+ #endif

@@ -1,0 +1,738 @@
+{
+ "steps": [
+  {
+   "focus": true
+  },
+  {
+   "expect": [
+    "cursor-shape Default",
+    "cursor-shape Default",
+    "text-input Normal at 0,0 0x0",
+    "redraw",
+    "redraw",
+    "pixels 800x600",
+    "pixels 800x600"
+   ]
+  },
+  {
+   "screenshot": "1-light"
+  },
+  {
+   "enter": [
+    100,
+    80
+   ]
+  },
+  {
+   "move": [
+    120,
+    90
+   ]
+  },
+  {
+   "wheel": [
+    0,
+    1
+   ]
+  },
+  {
+   "scroll": {
+    "phase": "changed",
+    "delta": [
+     3,
+     -12
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyK",
+    "key": "k"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyK",
+    "key": "k"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "text-input Normal at 100,80 20x20",
+    "text-input Normal at 120,90 20x20",
+    "redraw",
+    "pixels 800x600"
+   ]
+  },
+  {
+   "screenshot": "2-dark"
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyF",
+    "key": "f"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyF",
+    "key": "f"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "fullscreen Borderless",
+    "redraw",
+    "pixels 1920x1080",
+    "pixels 1920x1080"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyF",
+    "key": "f"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyF",
+    "key": "f"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "fullscreen None",
+    "redraw",
+    "pixels 800x600",
+    "pixels 800x600"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "cursor-grab Confined"
+   ]
+  },
+  {
+   "move_by": [
+    5,
+    -3
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "text-input Normal at 125,87 20x20",
+    "cursor-grab Locked"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyL",
+    "key": "l"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "cursor-grab None"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyC",
+    "key": "c"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyC",
+    "key": "c"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "down": {
+    "code": "AltLeft",
+    "key": "Alt",
+    "location": "left",
+    "mods": [
+     "alt",
+     "left_alt"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyC",
+    "key": "c"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyC",
+    "key": "c"
+   }
+  },
+  {
+   "up": {
+    "code": "AltLeft",
+    "key": "Alt",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "cursor-shape Crosshair",
+    "custom-cursor 16x16 hotspot 8,8"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyZ",
+    "key": "z"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyZ",
+    "key": "z"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "cursor-visible false"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyM",
+    "key": "m"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyM",
+    "key": "m"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "flags 0x10 of 0x10"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyM",
+    "key": "m"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyM",
+    "key": "m"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "down": {
+    "code": "AltLeft",
+    "key": "Alt",
+    "location": "left",
+    "mods": [
+     "alt",
+     "left_alt"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyR",
+    "key": "r"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyR",
+    "key": "r"
+   }
+  },
+  {
+   "up": {
+    "code": "AltLeft",
+    "key": "Alt",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "flags 0x0 of 0x10",
+    "size 600x800",
+    "redraw",
+    "pixels 600x800",
+    "pixels 600x800"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyD",
+    "key": "d"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyD",
+    "key": "d"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyR",
+    "key": "r"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyR",
+    "key": "r"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "flags 0x0 of 0x4",
+    "flags 0x0 of 0x2"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyI",
+    "key": "i"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyI",
+    "key": "i"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": [
+    "text-input off"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyI",
+    "key": "i"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyI",
+    "key": "i"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "compose": {
+    "text": "\u306b",
+    "cursor": [
+     3,
+     3
+    ]
+   }
+  },
+  {
+   "compose": {
+    "text": "\u65e5\u672c",
+    "cursor": null
+   }
+  },
+  {
+   "commit": "\u65e5\u672c"
+  },
+  {
+   "type": "x"
+  },
+  {
+   "touch": {
+    "id": 1,
+    "phase": "down",
+    "at": [
+     64,
+     48
+    ]
+   }
+  },
+  {
+   "touch": {
+    "id": 1,
+    "phase": "up",
+    "at": [
+     64,
+     48
+    ]
+   }
+  },
+  {
+   "resize": [
+    640,
+    400
+   ]
+  },
+  {
+   "expect": [
+    "text-input Normal at 125,87 20x20",
+    "text-input Normal at 125,87 20x20",
+    "redraw",
+    "pixels 640x400",
+    "pixels 640x400"
+   ]
+  },
+  {
+   "down": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": [
+     "control",
+     "left_control"
+    ]
+   }
+  },
+  {
+   "down": {
+    "code": "KeyN",
+    "key": "n"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyN",
+    "key": "n"
+   }
+  },
+  {
+   "up": {
+    "code": "ControlLeft",
+    "key": "Control",
+    "location": "left",
+    "mods": []
+   }
+  },
+  {
+   "expect": []
+  },
+  "close",
+  {
+   "window": 0
+  },
+  {
+   "expect": [
+    "cursor-shape Default",
+    "cursor-shape Default",
+    "text-input Normal at 0,0 0x0",
+    "redraw",
+    "redraw",
+    "pixels 800x600",
+    "pixels 800x600"
+   ]
+  },
+  {
+   "screenshot": "3-second"
+  },
+  "close"
+ ]
+}

@@ -1,0 +1,60 @@
+resumed
+monitor "Headless" 1920x1080 scale 1 at 60000 mHz, primary
+window 640x480 scale 1 theme Some(Light), surface selector wgui: and 32 more
+Resized 640x480
+RedrawRequested: drew 640x480
+Focused true
+KeyboardInput Pressed F1 key=F1 unmodified=F1 text=None all=None Standard
+fullscreen on
+Resized 1920x1080
+RedrawRequested: drew 1920x1080
+KeyboardInput Released F1 key=F1 unmodified=F1 text=None all=None Standard
+Resized 640x480
+RedrawRequested: drew 640x480
+KeyboardInput Pressed F1 key=F1 unmodified=F1 text=None all=None Standard
+fullscreen on
+Resized 1920x1080
+RedrawRequested: drew 1920x1080
+KeyboardInput Released F1 key=F1 unmodified=F1 text=None all=None Standard
+KeyboardInput Pressed F1 key=F1 unmodified=F1 text=None all=None Standard
+fullscreen off
+Resized 640x480
+RedrawRequested: drew 640x480
+KeyboardInput Released F1 key=F1 unmodified=F1 text=None all=None Standard
+CursorEntered
+CursorMoved 100,100
+KeyboardInput Pressed F2 key=F2 unmodified=F2 text=None all=None Standard
+lock: Ok(())
+KeyboardInput Released F2 key=F2 unmodified=F2 text=None all=None Standard
+device MouseMotion 5,-3
+Focused false
+Focused true
+CursorMoved 120,110
+KeyboardInput Pressed F2 key=F2 unmodified=F2 text=None all=None Standard
+lock: Ok(())
+KeyboardInput Released F2 key=F2 unmodified=F2 text=None all=None Standard
+KeyboardInput Pressed F3 key=F3 unmodified=F3 text=None all=None Standard
+release: Ok(())
+KeyboardInput Released F3 key=F3 unmodified=F3 text=None all=None Standard
+CursorMoved 130,110
+KeyboardInput Pressed F8 key=F8 unmodified=F8 text=None all=None Standard
+maximize
+KeyboardInput Released F8 key=F8 unmodified=F8 text=None all=None Standard
+KeyboardInput Pressed F8 key=F8 unmodified=F8 text=None all=None Standard
+restore
+KeyboardInput Released F8 key=F8 unmodified=F8 text=None all=None Standard
+KeyboardInput Pressed F7 key=F7 unmodified=F7 text=None all=None Standard
+size 400x300: None
+Resized 400x300
+RedrawRequested: drew 400x300
+KeyboardInput Released F7 key=F7 unmodified=F7 text=None all=None Standard
+KeyboardInput Pressed F10 key=F10 unmodified=F10 text=None all=None Standard
+cursor: text
+KeyboardInput Released F10 key=F10 unmodified=F10 text=None all=None Standard
+KeyboardInput Pressed F10 key=F10 unmodified=F10 text=None all=None Standard
+cursor: the program's own
+KeyboardInput Released F10 key=F10 unmodified=F10 text=None all=None Standard
+ThemeChanged Dark
+KeyboardInput Pressed F9 key=F9 unmodified=F9 text=None all=None Standard
+exiting at 400x300 after 6 frames
+done

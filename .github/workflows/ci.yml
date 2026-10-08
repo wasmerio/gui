@@ -1,0 +1,179 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+  RUST_BACKTRACE: 1
+  # What the header checks and the test programs are compiled with.
+  WASIXCC_VERSION: v0.4.3
+  # wasmer-webgpu is checked out next to this repository, where the manifest
+  # and the Makefile look for it (`../webgpu`). What windows need of it (two
+  # methods of `WindowTarget`, and waits that let go of a killed guest) is
+  # on its webgpu-gui branch: this is `main` again once that is merged.
+  WEBGPU_REF: webgpu-gui
+
+defaults:
+  run:
+    working-directory: gui
+
+jobs:
+  check:
+    name: Generated files, formatting, lints, the header
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: gui
+      - uses: actions/checkout@v6
+        with:
+          repository: wasmerio/webgpu
+          ref: ${{ env.WEBGPU_REF }}
+          path: webgpu
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      - name: Install the window system's development files
+        run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev libx11-dev
+      - name: Install wasixcc
+        uses: wasix-org/wasixcc@v0.4.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ env.WASIXCC_VERSION }}
+      - run: make check
+
+  test:
+    name: Headless host (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: gui
+      - uses: actions/checkout@v6
+        with:
+          repository: wasmerio/webgpu
+          ref: ${{ env.WEBGPU_REF }}
+          path: webgpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      - name: Install wasixcc
+        uses: wasix-org/wasixcc@v0.4.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ env.WASIXCC_VERSION }}
+      # The headless window system needs no display and no GPU.
+      - run: make test
+
+  windows:
+    name: Real windows and WebGPU (Linux, a virtual display)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      # No GPU on the runners: Mesa's software Vulkan stands in.
+      WEBGPU_TEST_FALLBACK_ADAPTER: "1"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: gui
+      - uses: actions/checkout@v6
+        with:
+          repository: wasmerio/webgpu
+          ref: ${{ env.WEBGPU_REF }}
+          path: webgpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      - name: Install a virtual display, the libraries winit loads, and a software Vulkan driver
+        run: >-
+          sudo apt-get update && sudo apt-get install -y
+          xvfb libx11-6 libx11-xcb1 libxcursor1 libxi6 libxrandr2 libxkbcommon0 libxkbcommon-x11-0
+          libwayland-dev libxkbcommon-dev libx11-dev
+          mesa-vulkan-drivers libvulkan1
+      - name: Install wasixcc
+        uses: wasix-org/wasixcc@v0.4.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ env.WASIXCC_VERSION }}
+      - name: Windows drawn on with WebGPU, headless
+        run: make test-gpu
+      # The same programs as on the headless host, in windows of an X server
+      # nobody looks at. What they print has to be the same.
+      - name: Real windows
+        run: xvfb-run -a -s "-screen 0 1280x800x24" make test-windows
+
+  ports:
+    name: SDL3 and winit on the API (headless)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: gui
+      - uses: actions/checkout@v6
+        with:
+          repository: wasmerio/webgpu
+          ref: ${{ env.WEBGPU_REF }}
+          path: webgpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      - name: Install what SDL is built with
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      - name: Install wasixcc
+        uses: wasix-org/wasixcc@v0.4.3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          version: ${{ env.WASIXCC_VERSION }}
+      - name: Install cargo-wasix
+        run: cargo install cargo-wasix --locked
+      # Each clones what it builds, at the release its patches are for.
+      - name: SDL3 with its driver for this API
+        run: make test-sdl
+      - name: winit and softbuffer with their backends for this API
+        run: make test-winit
+
+  macos-build:
+    name: Native windows compile (macOS)
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          path: gui
+      - uses: actions/checkout@v6
+        with:
+          repository: wasmerio/webgpu
+          ref: ${{ env.WEBGPU_REF }}
+          path: webgpu
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: gui
+      # The runners have no window server session to open windows in, and no
+      # Metal device: what is checked here is that everything builds.
+      - run: cargo build --features cli,winit,clipboard,webgpu,pixels --all-targets

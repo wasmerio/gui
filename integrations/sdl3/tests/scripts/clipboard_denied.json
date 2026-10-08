@@ -1,0 +1,12 @@
+{
+  "options": { "clipboard_read": "deny" },
+  "steps": [
+    { "focus": true },
+    { "clipboard": "not for this program" },
+    { "down": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": ["control", "left_control"] } },
+    { "down": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": [] } },
+    "close"
+  ]
+}

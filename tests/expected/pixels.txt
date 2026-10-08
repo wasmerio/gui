@@ -1,0 +1,13 @@
+frames can be presented: yes
+opened at 320x200 logical units
+the first frame: Success
+resized to 400x250 logical units
+the same in another layout, with padded rows: Success
+a corner of it: Success
+nothing of it: Success
+a frame bigger than its memory: InvalidArgument
+rows shorter than their pixels: InvalidArgument
+no rows at all: InvalidArgument
+a layout nobody knows: InvalidArgument
+a frame when asked for one: Success
+done

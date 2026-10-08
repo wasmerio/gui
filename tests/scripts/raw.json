@@ -1,0 +1,12 @@
+{
+  "steps": [
+    { "raw_motion": [9, 9] },
+    { "focus": true },
+    { "raw_motion": [3, 4] },
+    { "raw_motion": [-1, 0.5] },
+    { "mods": ["caps_lock"] },
+    { "focus": false },
+    { "focus": true },
+    "close"
+  ]
+}

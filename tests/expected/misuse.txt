@@ -1,0 +1,27 @@
+wguiCreateInstance(&needy, &instance): Unsupported
+wguiCreateInstance(&chained, &instance): Success
+wguiCreateInstance(&chained, &instance): Unsupported
+wguiWindowFocus(instance): InvalidHandle
+wguiInstanceWake(window): InvalidHandle
+wguiWindowSetCustomCursor(window, window): InvalidHandle
+wguiWindowRequestRedraw(gone): InvalidHandle
+wguiWindowSetSize(window, 0, 100): InvalidArgument
+wguiWindowSetSizeLimits(window, 500, 0, 100, 0): InvalidArgument
+wguiWindowSetCursorShape(window, (WGUICursorShape)999): InvalidArgument
+wguiWindowSetTitle(window, "\xFF\xFE not UTF-8", WGUI_STRLEN): InvalidArgument
+wguiWindowSetDefaultActions(window, 0x80000000u): InvalidArgument
+wguiInstanceReadClipboard(instance, WGUIClipboardSelection_Clipboard, "not a mime type", WGUI_STRLEN, NULL, 0, &size): InvalidArgument
+wguiWindowSetFullscreen(window, &none, 1): InvalidArgument
+wguiInstancePollEvents(instance, buffer, 64, &written): BufferTooSmall
+wguiInstancePollEvents(instance, (char*)buffer + 4, sizeof buffer - 8, &written): InvalidArgument
+wguiInstancePollEvents(instance, buffer, sizeof buffer, NULL): InvalidArgument
+exclusive fullscreen: no
+wguiWindowSetFullscreen(window, &exclusive, 2): Unsupported
+wguiInstanceGetClipboardInfo(instance, WGUIClipboardSelection_Primary, &primary): Unsupported
+wguiWindowSetFlags(window, WGUIWindowFlags_Focused | WGUIWindowFlags_Minimized, WGUIWindowFlags_Minimized, &refused): Success
+refused flags: Focused
+wguiWindowGetSurfaceSelector(window, selector, sizeof selector, &length): Success
+selector: 37 bytes, starts with wgui:
+wguiGetFeatures(4, features, &count): Success
+more than four features: yes
+done

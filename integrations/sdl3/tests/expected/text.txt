@@ -1,0 +1,49 @@
+video driver wasmer
+display 1920x1080 density=1 scale=1 bounds=0,0 1920x1080
+window 640x480, 640x480 pixels, density=1 scale=1
+surface selector wgui: and 32 more
+renderer software, vsync on
+WINDOW_SHOWN
+WINDOW_PIXEL_SIZE_CHANGED 640x480
+WINDOW_EXPOSED
+drew 640x480
+WINDOW_FOCUS_GAINED
+KEY_DOWN A key=A mods=0
+KEY_UP A key=A mods=0
+KEY_DOWN F4 key=F4 mods=0
+text input on: ok
+KEY_UP F4 key=F4 mods=0
+KEY_DOWN H key=H mods=0
+TEXT_INPUT "h"
+KEY_UP H key=H mods=0
+KEY_DOWN I key=I mods=0
+TEXT_INPUT "i"
+KEY_UP I key=I mods=0
+KEY_DOWN Return key=Return mods=0
+KEY_UP Return key=Return mods=0
+TEXT_EDITING "に" start=1 length=0
+TEXT_EDITING "にほん" start=1 length=2
+TEXT_EDITING "日本" start=0 length=0
+TEXT_EDITING "" start=0 length=0
+TEXT_INPUT "日本"
+KEY_DOWN ` key=` mods=0
+KEY_UP ` key=` mods=0
+KEY_DOWN E key=E mods=0
+TEXT_INPUT "è"
+KEY_UP E key=E mods=0
+KEY_DOWN Left Ctrl key=Left Ctrl mods=LCtrl
+KEY_DOWN C key=C mods=LCtrl
+KEY_UP C key=C mods=LCtrl
+KEY_UP Left Ctrl key=Left Ctrl mods=0
+KEY_DOWN Q key=Q mods=Caps
+TEXT_INPUT "q"
+KEY_UP Q key=Q mods=Caps
+KEY_DOWN F4 key=F4 mods=Caps
+text input off: ok
+KEY_UP F4 key=F4 mods=Caps
+KEY_DOWN Z key=Z mods=Caps
+KEY_UP Z key=Z mods=Caps
+WINDOW_CLOSE_REQUESTED
+QUIT
+quitting at 640x480 after 1 frames
+done

@@ -1,0 +1,12 @@
+host Headless, version 0.1
+WindowResized w1 800x600 scale=1 changed=Size|ScaleFactor [Synthetic]
+WindowFocusGained w1
+RawMotion delta=3,4
+RawMotion delta=-1,0.5
+ModifiersChanged w1 mods=CapsLock
+WindowFocusLost w1
+WindowFocusGained w1
+ModifiersChanged w1 mods=CapsLock
+WindowCloseRequested w1
+closing at 800x600, flags=Visible|Resizable|Decorated|Focused
+done

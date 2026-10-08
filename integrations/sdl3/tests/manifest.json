@@ -1,0 +1,16 @@
+{
+  "_comment": "SDL3 on its \"wasmer\" video driver: the programs of this directory, what plays the user for each, and where what each should print is kept (expected/<name>.txt). `make test-sdl` runs them; WGUI_BLESS=1 rewrites the expected output from what they print now.",
+  "runs": [
+    {"name": "basics", "program": "sdl_events", "script": "basics"},
+    {"name": "surface", "program": "sdl_events", "script": "basics", "args": ["--surface"]},
+    {"name": "requests", "program": "sdl_events", "script": "requests"},
+    {"name": "text", "program": "sdl_events", "script": "text"},
+    {"name": "clipboard", "program": "sdl_events", "script": "clipboard"},
+    {"name": "clipboard_asking", "program": "sdl_events", "script": "clipboard_asking"},
+    {"name": "clipboard_denied", "program": "sdl_events", "script": "clipboard_denied"},
+    {"name": "touch", "program": "sdl_events", "script": "touch"},
+    {"name": "scale", "program": "sdl_events", "script": "scale"},
+    {"name": "scale_hidpi", "program": "sdl_events", "script": "scale", "args": ["--hidpi"]},
+    {"name": "interrupted", "program": "sdl_events", "args": ["--interrupt-after", "300"]}
+  ]
+}

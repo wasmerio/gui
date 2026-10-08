@@ -1,0 +1,200 @@
+{
+ "steps": [
+  {
+   "focus": true
+  },
+  {
+   "down": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "up": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "expect": [
+    "cursor-shape Default",
+    "pixels 640x480",
+    "fullscreen Borderless",
+    "pixels 1920x1080"
+   ]
+  },
+  "escape",
+  {
+   "down": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "up": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "down": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "up": {
+    "code": "F1",
+    "key": "F1"
+   }
+  },
+  {
+   "enter": [
+    100,
+    100
+   ]
+  },
+  {
+   "down": {
+    "code": "F2",
+    "key": "F2"
+   }
+  },
+  {
+   "up": {
+    "code": "F2",
+    "key": "F2"
+   }
+  },
+  {
+   "move_by": [
+    5,
+    -3
+   ]
+  },
+  {
+   "raw_motion": [
+    5,
+    -3
+   ]
+  },
+  {
+   "focus": false
+  },
+  {
+   "focus": true
+  },
+  {
+   "move_by": [
+    2,
+    2
+   ]
+  },
+  "escape",
+  {
+   "move": [
+    120,
+    110
+   ]
+  },
+  {
+   "down": {
+    "code": "F2",
+    "key": "F2"
+   }
+  },
+  {
+   "up": {
+    "code": "F2",
+    "key": "F2"
+   }
+  },
+  {
+   "down": {
+    "code": "F3",
+    "key": "F3"
+   }
+  },
+  {
+   "up": {
+    "code": "F3",
+    "key": "F3"
+   }
+  },
+  {
+   "move": [
+    130,
+    110
+   ]
+  },
+  {
+   "down": {
+    "code": "F8",
+    "key": "F8"
+   }
+  },
+  {
+   "up": {
+    "code": "F8",
+    "key": "F8"
+   }
+  },
+  {
+   "down": {
+    "code": "F8",
+    "key": "F8"
+   }
+  },
+  {
+   "up": {
+    "code": "F8",
+    "key": "F8"
+   }
+  },
+  {
+   "down": {
+    "code": "F7",
+    "key": "F7"
+   }
+  },
+  {
+   "up": {
+    "code": "F7",
+    "key": "F7"
+   }
+  },
+  {
+   "down": {
+    "code": "F10",
+    "key": "F10"
+   }
+  },
+  {
+   "up": {
+    "code": "F10",
+    "key": "F10"
+   }
+  },
+  {
+   "down": {
+    "code": "F10",
+    "key": "F10"
+   }
+  },
+  {
+   "up": {
+    "code": "F10",
+    "key": "F10"
+   }
+  },
+  {
+   "theme": "dark"
+  },
+  {
+   "down": {
+    "code": "F9",
+    "key": "F9"
+   }
+  }
+ ]
+}

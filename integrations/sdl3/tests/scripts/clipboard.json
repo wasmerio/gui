@@ -1,0 +1,24 @@
+{
+  "steps": [
+    { "focus": true },
+    { "down": { "code": "F6", "key": "F6" } },
+    { "up": { "code": "F6", "key": "F6" } },
+    { "down": { "code": "F5", "key": "F5" } },
+    { "up": { "code": "F5", "key": "F5" } },
+    { "down": { "code": "F6", "key": "F6" } },
+    { "up": { "code": "F6", "key": "F6" } },
+    { "focus": false },
+    { "clipboard": "copied \"elsewhere\"" },
+    { "focus": true },
+    { "down": { "code": "F6", "key": "F6" } },
+    { "up": { "code": "F6", "key": "F6" } },
+    { "down": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": ["control", "left_control"] } },
+    { "down": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "KeyV", "key": "v" } },
+    { "up": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": [] } },
+    { "advance": 5000 },
+    { "down": { "code": "F6", "key": "F6" } },
+    { "up": { "code": "F6", "key": "F6" } },
+    "close"
+  ]
+}

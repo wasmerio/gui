@@ -1,0 +1,1395 @@
+{
+  "_comment": [
+    "The wasmer-gui guest API. Everything else is generated from this file by codegen/gen.py:",
+    "the C header, the host's Rust readers and import glue, the page-side JavaScript tables and the layout checks.",
+    "The schema follows webgpu-headers' webgpu.json (enums, bitflags, structs, objects with methods), plus `events`.",
+    "Rules the generator enforces: results are a status, nothing, or one of the two listed exceptions;",
+    "imports take scalars and pointers only; event records use fixed-width fields only."
+  ],
+  "name": "gui",
+  "import_module": "wasmer_gui_v0",
+  "version": { "major": 0, "minor": 1 },
+  "doc": "Windows, input, text entry and the clipboard for WASIX programs.\n\nA program creates an instance, opens windows on it, and drains the instance's event queue. The host never calls into the program: everything it has to say arrives as an event record, and everything a platform wants answered on the spot is declared ahead of time.\n\nEvery function returns a WGUIStatus (or nothing) and hands values back through out-pointers. A host that does not have a function answers WGUIStatus_Unimplemented and does nothing, so a program built against a newer header still starts on an older host.\n\nAll functions may be called from any thread. Sizes and positions are physical pixels unless stated otherwise.",
+
+  "constants": [
+    { "name": "abi_version", "type": "uint32", "value": "version", "doc": "The version of this header: major << 16 | minor. WGUI_INSTANCE_DESCRIPTOR_INIT passes it to the host, which behaves as that version describes." },
+    { "name": "max_event_size", "type": "usize", "value": "8192", "doc": "No event record is larger. A buffer handed to wguiInstancePollEvents must hold at least this many bytes." },
+    { "name": "strlen", "type": "usize", "value": "usize_max", "doc": "As a string length: the string is NUL-terminated." },
+    { "name": "wait_forever", "type": "uint64", "value": "uint64_max", "doc": "As a timeout: no timeout." },
+    { "name": "position_undefined", "type": "int32", "value": "int32_min", "doc": "A window position the host does not know or does not tell (Wayland, a browser)." },
+    { "name": "no_text_cursor", "type": "uint32", "value": "uint32_max", "doc": "As a composition's selection: the input method shows no cursor." },
+    { "name": "stype_must_understand", "type": "uint32", "value": "0x80000000", "doc": "Set in a chained struct's sType when ignoring it would be wrong. A host that does not know the struct then fails the call with WGUIStatus_Unsupported instead of skipping it." },
+    { "name": "key_tag_mask", "type": "uint32", "value": "0xFF000000", "doc": "The part of a WGUIKey that says what the rest means." },
+    { "name": "key_value_mask", "type": "uint32", "value": "0x00FFFFFF", "doc": "The part of a WGUIKey its tag describes." },
+    { "name": "key_character", "type": "uint32", "value": "0x00000000", "doc": "Tag: the value is the one Unicode scalar value the key produces (0 is WGUIKey_Unidentified)." },
+    { "name": "key_named", "type": "uint32", "value": "0x01000000", "doc": "Tag: a named key, one of the WGUIKey_* constants." },
+    { "name": "key_dead", "type": "uint32", "value": "0x02000000", "doc": "Tag: a dead key. The value is the combining character it adds to the next key, or 0 if unknown." },
+    { "name": "key_sequence", "type": "uint32", "value": "0x03000000", "doc": "Tag: the key produces more than one scalar value. The value is the first; the event's keyString has all of them." },
+    { "name": "pointer_id_mouse", "type": "uint32", "value": "1", "doc": "The pointer id of the mouse cursor, whichever mouse or touchpad moves it." }
+  ],
+
+  "objects": [
+    {
+      "name": "instance",
+      "doc": "A program's connection to the window system, and its event queue. Destroying it destroys its windows and cursors.",
+      "methods": [
+        {
+          "name": "destroy",
+          "doc": "Destroys the instance with everything created on it. Requests still pending complete as WGUIStatus_Cancelled and are then dropped with the queue."
+        },
+        {
+          "name": "get_info",
+          "doc": "What kind of host this is and what it has.",
+          "returns": "status",
+          "args": [ { "name": "info", "type": "struct.instance_info", "pointer": "mutable" } ]
+        },
+        {
+          "name": "poll_events",
+          "doc": "Copies queued event records into `buffer`, oldest first, as many whole records as fit, and sets `written` to their total size (0 when the queue is empty). Never blocks.\n\n`buffer` must be 8-byte aligned and `capacity` at least WGUI_MAX_EVENT_SIZE, so one record always fits. Step through the records with wguiEventFirst and wguiEventNext.\n\nThis call and wguiInstanceWaitEvents are also where signals reach the program. A WASIX runtime delivers them where a program enters the system, and a program that draws frame after frame may do that nowhere else, so the host lets them in here: a handler the program installed runs before the call returns, and a signal that ends the program ends it in this call.",
+          "signals": true,
+          "returns": "status",
+          "args": [
+            { "name": "buffer", "type": "c_void", "pointer": "mutable" },
+            { "name": "capacity", "type": "usize" },
+            { "name": "written", "type": "usize", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "wait_events",
+          "doc": "Blocks until the queue has a record, wguiInstanceWake is called, or `timeout` nanoseconds pass (0 only checks; WGUI_WAIT_FOREVER never times out). `reasons` says why it returned; 0 is a timeout.\n\nA wake that happened before the wait is not lost: it ends the next wait. Signals reach the program as this call returns, not while it sleeps in it (see wguiInstancePollEvents). So that they are not kept waiting, the host ends a long wait early with WGUIWaitReasons_Interrupted: unless a signal handler did something, nothing happened, and the program waits again.",
+          "blocking": true,
+          "signals": true,
+          "returns": "status",
+          "args": [
+            { "name": "timeout", "type": "uint64" },
+            { "name": "reasons", "type": "bitflag.wait_reasons", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "wake",
+          "doc": "Ends the current wguiInstanceWaitEvents of this instance, or the next one if none is waiting. For waking a program's event loop from another thread.",
+          "returns": "status"
+        },
+        {
+          "name": "set_event_mask",
+          "doc": "Chooses which classes of events are queued from now on. Records already queued stay. WGUIEventClass_System cannot be turned off.",
+          "returns": "status",
+          "args": [ { "name": "mask", "type": "bitflag.event_class" } ]
+        },
+        {
+          "name": "get_time",
+          "doc": "The current time on the clock event timestamps use, in nanoseconds. Hosts make it the WASI monotonic clock where they can.",
+          "returns": "status",
+          "args": [ { "name": "time", "type": "uint64", "pointer": "mutable" } ]
+        },
+        {
+          "name": "get_displays",
+          "doc": "Lists the displays, the primary one first. Writes up to `capacity` handles and sets `count` to how many there are. Display handles stay valid until WGUIEventType_DisplaysChanged says the set changed.",
+          "returns": "status",
+          "args": [
+            { "name": "capacity", "type": "usize" },
+            { "name": "displays", "type": "object.display", "pointer": "mutable", "optional": true },
+            { "name": "count", "type": "usize", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "create_window",
+          "doc": "Opens a window, or adopts the target the descriptor names. NULL asks for the host's default window.\n\nThe first record queued for the new window is a WGUIEventType_WindowResized with its real size and scale factor.",
+          "blocking": true,
+          "returns": "status",
+          "args": [
+            { "name": "descriptor", "type": "struct.window_descriptor", "pointer": "immutable", "optional": true },
+            { "name": "window", "type": "object.window", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "create_cursor",
+          "doc": "Makes a cursor from an image, for wguiWindowSetCustomCursor.",
+          "returns": "status",
+          "args": [
+            { "name": "descriptor", "type": "struct.cursor_descriptor", "pointer": "immutable" },
+            { "name": "cursor", "type": "object.cursor", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "get_clipboard_info",
+          "doc": "What the host knows about a clipboard right now, without reading it.",
+          "returns": "status",
+          "args": [
+            { "name": "selection", "type": "enum.clipboard_selection" },
+            { "name": "info", "type": "struct.clipboard_info", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "read_clipboard",
+          "doc": "Copies the clipboard's content of one MIME type into `buffer` and sets `size` to its length in bytes. Text is \"text/plain\", UTF-8, not NUL-terminated.\n\nWGUIStatus_BufferTooSmall: `size` holds what is needed, nothing was copied. WGUIStatus_Pending: the host cannot answer without asking the system first (a browser); call wguiInstanceRequestClipboard and read again once it completes. WGUIStatus_NotFound: nothing of that type. WGUIStatus_Denied: the program may not read the clipboard.",
+          "returns": "status",
+          "args": [
+            { "name": "selection", "type": "enum.clipboard_selection" },
+            { "name": "mime_type", "type": "string" },
+            { "name": "buffer", "type": "c_void", "pointer": "mutable", "optional": true },
+            { "name": "capacity", "type": "usize" },
+            { "name": "size", "type": "usize", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "request_clipboard",
+          "doc": "Asks the host to fetch the clipboard's content of one MIME type, so that wguiInstanceReadClipboard can answer. Completes with WGUIEventType_RequestCompleted carrying `tag`: Success, Denied or NotFound.",
+          "returns": "status",
+          "args": [
+            { "name": "selection", "type": "enum.clipboard_selection" },
+            { "name": "mime_type", "type": "string" },
+            { "name": "tag", "type": "uint64" }
+          ]
+        },
+        {
+          "name": "write_clipboard",
+          "doc": "Replaces the clipboard's content with these items (one per MIME type; none clears it). The program's own reads see the new content at once; WGUIEventType_RequestCompleted with `tag` says whether the system took it.",
+          "returns": "status",
+          "args": [
+            { "name": "selection", "type": "enum.clipboard_selection" },
+            { "name": "items", "type": "array<struct.clipboard_item>", "pointer": "immutable" },
+            { "name": "tag", "type": "uint64" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "display",
+      "doc": "A screen. Displays belong to the host: there is nothing to destroy.",
+      "methods": [
+        {
+          "name": "get_info",
+          "doc": "The display's geometry, scale factor and refresh rate.",
+          "returns": "status",
+          "args": [ { "name": "info", "type": "struct.display_info", "pointer": "mutable" } ]
+        },
+        {
+          "name": "get_name",
+          "doc": "The display's name for people, UTF-8, not NUL-terminated. Copies up to `capacity` bytes and sets `length` to the name's full length.",
+          "returns": "status",
+          "args": [
+            { "name": "buffer", "type": "char", "pointer": "mutable", "optional": true },
+            { "name": "capacity", "type": "usize" },
+            { "name": "length", "type": "usize", "pointer": "mutable" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "window",
+      "doc": "A window: a native top-level window, or a target the embedder provides (a canvas in a browser, a view in an app).",
+      "methods": [
+        {
+          "name": "destroy",
+          "doc": "Closes the window. No more records are queued for it; ones already queued can still be read. A WebGPU surface created on it keeps presenting nowhere until it is released."
+        },
+        {
+          "name": "get_state",
+          "doc": "The window's current size, scale factor, position and flags. Answered from what the host last saw, without waiting for the window system.",
+          "returns": "status",
+          "args": [ { "name": "state", "type": "struct.window_state", "pointer": "mutable" } ]
+        },
+        {
+          "name": "get_surface_selector",
+          "doc": "The name to draw on this window with WebGPU: put it in WGPUWasixSurfaceSourceCanvas.selector. UTF-8, not NUL-terminated. Copies up to `capacity` bytes and sets `length` to the full length.\n\nFor a window that adopted a named target this is that name; otherwise the host makes one up, starting with \"wgui:\".",
+          "returns": "status",
+          "args": [
+            { "name": "buffer", "type": "char", "pointer": "mutable", "optional": true },
+            { "name": "capacity", "type": "usize" },
+            { "name": "length", "type": "usize", "pointer": "mutable" }
+          ]
+        },
+        {
+          "name": "set_title",
+          "doc": "Sets the window's title.",
+          "returns": "status",
+          "args": [ { "name": "title", "type": "string" } ]
+        },
+        {
+          "name": "set_size",
+          "doc": "Asks for a new size of the content area. The size the window ends up with arrives as WGUIEventType_WindowResized; WGUIStatus_Unsupported when the embedder decides the size.",
+          "returns": "status",
+          "args": [
+            { "name": "width", "type": "uint32" },
+            { "name": "height", "type": "uint32" }
+          ]
+        },
+        {
+          "name": "set_size_limits",
+          "doc": "Limits how small and how large the user can make the content area. 0 means no limit.",
+          "returns": "status",
+          "args": [
+            { "name": "min_width", "type": "uint32" },
+            { "name": "min_height", "type": "uint32" },
+            { "name": "max_width", "type": "uint32" },
+            { "name": "max_height", "type": "uint32" }
+          ]
+        },
+        {
+          "name": "set_position",
+          "doc": "Moves the window's content area to a position on the desktop. Needs WGUIFeatureName_WindowPosition.",
+          "returns": "status",
+          "args": [
+            { "name": "x", "type": "int32" },
+            { "name": "y", "type": "int32" }
+          ]
+        },
+        {
+          "name": "set_flags",
+          "doc": "Changes the flags in `mask` to their bits in `values`: show or hide, minimize, maximize, restore, borders, level. What actually happened arrives as WGUIEventType_WindowFlagsChanged. `unsupported` receives the bits of `mask` this host cannot change.",
+          "returns": "status",
+          "args": [
+            { "name": "mask", "type": "bitflag.window_flags" },
+            { "name": "values", "type": "bitflag.window_flags" },
+            { "name": "unsupported", "type": "bitflag.window_flags", "pointer": "mutable", "optional": true }
+          ]
+        },
+        {
+          "name": "set_fullscreen",
+          "doc": "Enters fullscreen as `options` says, or leaves it when `options` is NULL. Completes with WGUIEventType_RequestCompleted carrying `tag`. Where the platform insists on a user gesture (a browser), the request waits for the next one unless the options forbid waiting.\n\nThe user can leave fullscreen without the program asking; WGUIEventType_WindowFlagsChanged reports every change.",
+          "returns": "status",
+          "args": [
+            { "name": "options", "type": "struct.fullscreen_options", "pointer": "immutable", "optional": true },
+            { "name": "tag", "type": "uint64" }
+          ]
+        },
+        {
+          "name": "focus",
+          "doc": "Asks for keyboard focus and brings the window forward. Window systems may refuse.",
+          "returns": "status"
+        },
+        {
+          "name": "request_attention",
+          "doc": "Asks for the user's attention without taking focus (a bouncing icon, a flashing task bar entry).",
+          "returns": "status",
+          "args": [ { "name": "level", "type": "enum.attention_level" } ]
+        },
+        {
+          "name": "request_redraw",
+          "doc": "Asks for one WGUIEventType_WindowRedrawRequested, which comes when the display is ready for the window's next frame: a program that draws whenever it is told to and asks again runs at the display's pace. Several requests before it is delivered make one event; none is delivered while the window cannot be seen.",
+          "returns": "status"
+        },
+        {
+          "name": "set_cursor_shape",
+          "doc": "Shows one of the system's cursors over the window.",
+          "returns": "status",
+          "args": [ { "name": "shape", "type": "enum.cursor_shape" } ]
+        },
+        {
+          "name": "set_custom_cursor",
+          "doc": "Shows a cursor made with wguiInstanceCreateCursor over the window.",
+          "returns": "status",
+          "args": [ { "name": "cursor", "type": "object.cursor" } ]
+        },
+        {
+          "name": "set_cursor_visible",
+          "doc": "Shows or hides the cursor while it is over the window.",
+          "returns": "status",
+          "args": [ { "name": "visible", "type": "bool" } ]
+        },
+        {
+          "name": "set_cursor_grab",
+          "doc": "Keeps the cursor inside the window (Confined), or hides it and reports only movement (Locked), or lets it go (None). Completes with WGUIEventType_RequestCompleted carrying `tag`; a later request cancels one still pending.\n\nA grab is lent, not owned: the user or the system can end it, and WGUIEventType_WindowCursorGrabChanged reports every change. The host never gives one kind of grab in place of another.",
+          "returns": "status",
+          "args": [
+            { "name": "grab", "type": "enum.cursor_grab" },
+            { "name": "tag", "type": "uint64" }
+          ]
+        },
+        {
+          "name": "set_cursor_position",
+          "doc": "Moves the cursor to a position in the window. Needs WGUIFeatureName_CursorWarp.",
+          "returns": "status",
+          "args": [
+            { "name": "x", "type": "float64" },
+            { "name": "y", "type": "float64" }
+          ]
+        },
+        {
+          "name": "set_text_input",
+          "doc": "Starts text entry in this window, or updates it (call again whenever the caret moves), or stops it with NULL. While it is on, input methods and on-screen keyboards work, and every insertion arrives as WGUIEventType_TextCommit.",
+          "returns": "status",
+          "args": [ { "name": "descriptor", "type": "struct.text_input_descriptor", "pointer": "immutable", "optional": true } ]
+        },
+        {
+          "name": "reset_text_input",
+          "doc": "Throws away the text being composed, as when the program moves its caret itself.",
+          "returns": "status"
+        },
+        {
+          "name": "set_default_actions",
+          "doc": "Says which of the embedder's own reactions to input the host should prevent while this window has it (a browser scrolling the page on a wheel turn or on the space bar, its context menu). A program polls for input and cannot refuse an event in time, so it states its choice ahead. Hosts without such reactions accept and ignore it.",
+          "returns": "status",
+          "args": [ { "name": "prevented", "type": "bitflag.default_actions" } ]
+        },
+        {
+          "name": "present_pixels",
+          "doc": "Shows a frame the program drew itself: for programs without a GPU (WGUIFeatureName_PixelPresent). The frame is copied before the call returns, so the program can draw the next one into the same memory.\n\nThe frame fills the window. One of another size than the window's is scaled to it, which a program avoids by drawing at the size the last WGUIEventType_WindowResized told. `damage` lists the rectangles of the frame that differ from the one presented before; none means all of it. A host may show more than what is listed, never less.\n\nThe call does not wait for the display. A program that animates asks for wguiWindowRequestRedraw after each frame and draws the next one when WGUIEventType_WindowRedrawRequested comes, which is once per refresh of the display; frames presented faster than they can be shown replace each other. A window is drawn this way or through a WebGPU surface, not both.",
+          "returns": "status",
+          "args": [
+            { "name": "frame", "type": "struct.pixel_frame", "pointer": "immutable" },
+            { "name": "damage", "type": "array<struct.rect>", "pointer": "immutable" }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "cursor",
+      "doc": "A cursor image.",
+      "methods": [
+        {
+          "name": "destroy",
+          "doc": "Destroys the cursor. Windows showing it go back to the default cursor."
+        }
+      ]
+    }
+  ],
+
+  "functions": [
+    {
+      "name": "get_version",
+      "doc": "The newest version of this API the host implements, as major << 16 | minor. 0 means the host has no such function (it is older than every version).",
+      "returns": "uint32",
+      "stub_result": "exception"
+    },
+    {
+      "name": "has_feature",
+      "doc": "Whether this program may use a feature here: the host can do it and the embedder allows it.",
+      "returns": "bool",
+      "stub_result": "exception",
+      "args": [ { "name": "feature", "type": "enum.feature_name" } ]
+    },
+    {
+      "name": "get_features",
+      "doc": "Lists the features wguiHasFeature would confirm. Writes up to `capacity` of them and sets `count` to how many there are.",
+      "returns": "status",
+      "args": [
+        { "name": "capacity", "type": "usize" },
+        { "name": "features", "type": "enum.feature_name", "pointer": "mutable", "optional": true },
+        { "name": "count", "type": "usize", "pointer": "mutable" }
+      ]
+    },
+    {
+      "name": "create_instance",
+      "doc": "Connects to the window system. NULL is WGUI_INSTANCE_DESCRIPTOR_INIT. Fails with WGUIStatus_Unsupported when a required feature is missing.",
+      "returns": "status",
+      "args": [
+        { "name": "descriptor", "type": "struct.instance_descriptor", "pointer": "immutable", "optional": true },
+        { "name": "instance", "type": "object.instance", "pointer": "mutable" }
+      ]
+    }
+  ],
+
+  "enums": [
+    {
+      "name": "status",
+      "doc": "What a function did. Out-values are written only on Success, unless a status says otherwise.",
+      "entries": [
+        { "name": "unimplemented", "doc": "The host does not have this function. Nothing was done and nothing was written." },
+        { "name": "success", "doc": "Done, or the request was accepted." },
+        { "name": "error", "doc": "The host failed." },
+        { "name": "unsupported", "doc": "The host knows this, but cannot do it here: the platform lacks it or the feature is not enabled." },
+        { "name": "invalid_argument", "doc": "An enum value, a struct, a chain, a string that is not UTF-8, a missing pointer, or a reserved field that is not zero." },
+        { "name": "invalid_handle", "doc": "A handle that is null, stale or of another type." },
+        { "name": "buffer_too_small", "doc": "The size needed was written; nothing else was." },
+        { "name": "pending", "doc": "The answer needs a request first." },
+        { "name": "denied", "doc": "The user, a permission or the embedder's policy said no." },
+        { "name": "limit_exceeded", "doc": "A limit set by the embedder was reached." },
+        { "name": "not_found", "doc": "No such target, or nothing of that type." },
+        { "name": "busy", "doc": "The target is already in use by another window." },
+        { "name": "lost", "doc": "The window's host side is gone." },
+        { "name": "cancelled", "doc": "A request was replaced by a later one, or what it was for was destroyed." }
+      ]
+    },
+    {
+      "name": "s_type",
+      "doc": "Identifies a struct in a nextInChain list. This version defines none; hosts skip the ones they do not know unless WGUI_STYPE_MUST_UNDERSTAND is set.",
+      "entries": [
+        { "name": "invalid", "doc": "Not a struct type." }
+      ]
+    },
+    {
+      "name": "feature_name",
+      "doc": "Something a host may or may not offer. Query with wguiHasFeature.",
+      "entries": [
+        null,
+        { "name": "windows", "doc": "Windows can be created at all." },
+        { "name": "top_level_windows", "doc": "Windows beyond the targets the embedder provides: real top-level windows, as many as the embedder's limit allows." },
+        { "name": "window_position", "doc": "Window positions are known and can be set." },
+        { "name": "window_states", "doc": "Minimize, maximize, borders and level can be changed." },
+        { "name": "fullscreen_borderless", "doc": "Fullscreen at the display's own mode." },
+        { "name": "fullscreen_exclusive", "doc": "Fullscreen with a display mode of the program's choice." },
+        { "name": "displays", "doc": "Displays are listed with real geometry." },
+        { "name": "text_input", "doc": "Input methods: composition and committed text." },
+        { "name": "screen_keyboard", "doc": "An on-screen keyboard can be shown and hidden." },
+        { "name": "touch", "doc": "Touch contacts are reported as pointers." },
+        { "name": "pen", "doc": "Pens are reported as pointers, with pressure and tilt where the hardware has them." },
+        { "name": "raw_input", "doc": "The WGUIEventClass_Raw events." },
+        { "name": "raw_input_unfocused", "doc": "Raw events arrive while no window of the program has focus." },
+        { "name": "cursor_shapes", "doc": "wguiWindowSetCursorShape." },
+        { "name": "custom_cursors", "doc": "wguiInstanceCreateCursor." },
+        { "name": "cursor_warp", "doc": "wguiWindowSetCursorPosition." },
+        { "name": "cursor_confine", "doc": "WGUICursorGrab_Confined." },
+        { "name": "cursor_lock", "doc": "WGUICursorGrab_Locked." },
+        { "name": "clipboard_text", "doc": "Text can be written to the clipboard, and read if the embedder allows." },
+        { "name": "clipboard_sync_read", "doc": "wguiInstanceReadClipboard never answers WGUIStatus_Pending." },
+        { "name": "theme", "doc": "Light or dark appearance is known." },
+        { "name": "attention_request", "doc": "wguiWindowRequestAttention." },
+        { "name": "clipboard_data", "doc": "Reserved: clipboard content other than text." },
+        { "name": "primary_selection", "doc": "Reserved: WGUIClipboardSelection_Primary." },
+        { "name": "gestures", "doc": "Reserved: pinch, rotate and pan gestures." },
+        { "name": "keyboard_layout", "doc": "Reserved: the layout's key map." },
+        { "name": "text_surrounding", "doc": "Reserved: text around the caret for input methods." },
+        { "name": "drag_and_drop", "doc": "Reserved: dragging to and from windows." },
+        { "name": "pixel_present", "doc": "wguiWindowPresentPixels: showing frames the program drew itself, without a GPU." },
+        { "name": "event_fd", "doc": "Reserved: a file descriptor that becomes readable when events are queued." },
+        { "name": "gamepads", "doc": "Reserved: game controllers." }
+      ]
+    },
+    {
+      "name": "host_kind",
+      "doc": "What is behind the window system.",
+      "entries": [
+        { "name": "unknown", "doc": "" },
+        { "name": "headless", "doc": "No screen: windows exist, and input comes from whoever embeds the program." },
+        { "name": "desktop", "doc": "A desktop window system." },
+        { "name": "browser", "doc": "A web page: windows are canvases." },
+        { "name": "mobile", "doc": "A phone or tablet." },
+        { "name": "embedded", "doc": "Views inside another application." }
+      ]
+    },
+    {
+      "name": "theme",
+      "doc": "Light or dark appearance.",
+      "entries": [
+        { "name": "unknown", "doc": "" },
+        { "name": "light", "doc": "" },
+        { "name": "dark", "doc": "" }
+      ]
+    },
+    {
+      "name": "request_kind",
+      "doc": "Which function a WGUIEventType_RequestCompleted answers.",
+      "entries": [
+        null,
+        { "name": "fullscreen", "doc": "wguiWindowSetFullscreen" },
+        { "name": "cursor_grab", "doc": "wguiWindowSetCursorGrab" },
+        { "name": "clipboard_request", "doc": "wguiInstanceRequestClipboard" },
+        { "name": "clipboard_write", "doc": "wguiInstanceWriteClipboard" }
+      ]
+    },
+    {
+      "name": "fullscreen_mode",
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "Not fullscreen." },
+        { "name": "borderless", "doc": "The window covers the display at its current mode." },
+        { "name": "exclusive", "doc": "The display switches mode for the window. Needs WGUIFeatureName_FullscreenExclusive." }
+      ]
+    },
+    {
+      "name": "attention_level",
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "Stop asking." },
+        { "name": "informational", "doc": "Once, gently." },
+        { "name": "critical", "doc": "Until the user responds." }
+      ]
+    },
+    {
+      "name": "cursor_grab",
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "The cursor is free." },
+        { "name": "confined", "doc": "The cursor stays inside the window." },
+        { "name": "locked", "doc": "The cursor is hidden and stays where it was. Pointer events keep that position and carry the movement in deltaX and deltaY." }
+      ]
+    },
+    {
+      "name": "cursor_grab_reason",
+      "doc": "Why a window's cursor grab changed.",
+      "entries": [
+        null,
+        { "name": "requested", "doc": "The program asked." },
+        { "name": "user", "doc": "The user ended it (Escape in a browser)." },
+        { "name": "focus_lost", "doc": "The window lost focus. The host grabs again when focus returns." },
+        { "name": "focus_gained", "doc": "The grab came back with focus." },
+        { "name": "host", "doc": "The host or the embedder took it away." }
+      ]
+    },
+    {
+      "name": "cursor_shape",
+      "doc": "The system's cursors, named as in CSS.",
+      "entries": [
+        null,
+        { "name": "default", "doc": "" },
+        { "name": "context_menu", "doc": "" },
+        { "name": "help", "doc": "" },
+        { "name": "pointer", "doc": "" },
+        { "name": "progress", "doc": "" },
+        { "name": "wait", "doc": "" },
+        { "name": "cell", "doc": "" },
+        { "name": "crosshair", "doc": "" },
+        { "name": "text", "doc": "" },
+        { "name": "vertical_text", "doc": "" },
+        { "name": "alias", "doc": "" },
+        { "name": "copy", "doc": "" },
+        { "name": "move", "doc": "" },
+        { "name": "no_drop", "doc": "" },
+        { "name": "not_allowed", "doc": "" },
+        { "name": "grab", "doc": "" },
+        { "name": "grabbing", "doc": "" },
+        { "name": "e_resize", "doc": "" },
+        { "name": "n_resize", "doc": "" },
+        { "name": "ne_resize", "doc": "" },
+        { "name": "nw_resize", "doc": "" },
+        { "name": "s_resize", "doc": "" },
+        { "name": "se_resize", "doc": "" },
+        { "name": "sw_resize", "doc": "" },
+        { "name": "w_resize", "doc": "" },
+        { "name": "ew_resize", "doc": "" },
+        { "name": "ns_resize", "doc": "" },
+        { "name": "nesw_resize", "doc": "" },
+        { "name": "nwse_resize", "doc": "" },
+        { "name": "col_resize", "doc": "" },
+        { "name": "row_resize", "doc": "" },
+        { "name": "all_scroll", "doc": "" },
+        { "name": "zoom_in", "doc": "" },
+        { "name": "zoom_out", "doc": "" }
+      ]
+    },
+    {
+      "name": "clipboard_selection",
+      "doc": "",
+      "entries": [
+        null,
+        { "name": "clipboard", "doc": "What copy and paste use." },
+        { "name": "primary", "doc": "The selection X11 and Wayland paste with the middle button. Needs WGUIFeatureName_PrimarySelection." }
+      ]
+    },
+    {
+      "name": "text_input_purpose",
+      "doc": "What a text field is for. Hosts use it to choose a keyboard and to switch helpers off.",
+      "entries": [
+        { "name": "normal", "doc": "" },
+        { "name": "password", "doc": "" },
+        { "name": "terminal", "doc": "" },
+        { "name": "number", "doc": "" },
+        { "name": "phone", "doc": "" },
+        { "name": "url", "doc": "" },
+        { "name": "email", "doc": "" },
+        { "name": "pin", "doc": "" },
+        { "name": "date", "doc": "" },
+        { "name": "time", "doc": "" },
+        { "name": "name", "doc": "" },
+        { "name": "username", "doc": "" },
+        { "name": "search", "doc": "" }
+      ]
+    },
+    {
+      "name": "screen_keyboard_policy",
+      "doc": "",
+      "entries": [
+        { "name": "auto", "doc": "Shown when there is no hardware keyboard." },
+        { "name": "show", "doc": "" },
+        { "name": "hide", "doc": "" }
+      ]
+    },
+    {
+      "name": "key_location",
+      "doc": "Which of several keys with the same meaning.",
+      "entries": [
+        { "name": "standard", "doc": "" },
+        { "name": "left", "doc": "" },
+        { "name": "right", "doc": "" },
+        { "name": "numpad", "doc": "" }
+      ]
+    },
+    {
+      "name": "pointer_kind",
+      "doc": "",
+      "entries": [
+        null,
+        { "name": "mouse", "doc": "The mouse cursor: every mouse and touchpad together, always pointer id WGUI_POINTER_ID_MOUSE." },
+        { "name": "touch", "doc": "One finger. Its id lasts from WGUIEventType_PointerDown to PointerUp or PointerCancel." },
+        { "name": "pen", "doc": "A pen. Its id lasts from PointerEnter to PointerLeave." }
+      ]
+    },
+    {
+      "name": "pointer_button",
+      "doc": "Values above Forward are further buttons of the device, numbered on.",
+      "entries": [
+        { "name": "none", "doc": "No button changed (motion, enter, leave)." },
+        { "name": "primary", "doc": "The left mouse button, a touch contact, a pen's tip." },
+        { "name": "secondary", "doc": "The right mouse button, a pen's barrel button." },
+        { "name": "auxiliary", "doc": "The middle mouse button." },
+        { "name": "back", "doc": "" },
+        { "name": "forward", "doc": "" },
+        { "name": "eraser", "doc": "A pen's eraser end." }
+      ]
+    },
+    {
+      "name": "pointer_tool",
+      "doc": "",
+      "entries": [
+        { "name": "unknown", "doc": "" },
+        { "name": "pen", "doc": "" },
+        { "name": "eraser", "doc": "" }
+      ]
+    },
+    {
+      "name": "wheel_unit",
+      "doc": "",
+      "entries": [
+        null,
+        { "name": "line", "doc": "Notches of a wheel." },
+        { "name": "pixel", "doc": "Physical pixels, from a touchpad or a precise wheel." }
+      ]
+    },
+    {
+      "name": "wheel_phase",
+      "doc": "Where a wheel record stands in a scroll gesture.",
+      "entries": [
+        { "name": "none", "doc": "A plain wheel: no gesture." },
+        { "name": "began", "doc": "" },
+        { "name": "changed", "doc": "" },
+        { "name": "ended", "doc": "" },
+        { "name": "cancelled", "doc": "" }
+      ]
+    },
+    {
+      "name": "pixel_format",
+      "doc": "How a pixel of a frame for wguiWindowPresentPixels lies in memory: four bytes, 8 bits a channel.",
+      "entries": [
+        null,
+        { "name": "bgra8", "doc": "Blue, green, red, alpha: 0xAARRGGBB read as a little-endian 32-bit number, which is how most software renderers keep their pixels." },
+        { "name": "rgba8", "doc": "Red, green, blue, alpha." }
+      ]
+    },
+    {
+      "name": "pixel_alpha",
+      "doc": "What the fourth byte of a pixel means.",
+      "entries": [
+        null,
+        { "name": "opaque", "doc": "Nothing: every pixel covers what is behind the window, whatever the byte holds." },
+        { "name": "premultiplied", "doc": "How much the pixel covers, with the colours already multiplied by it. Shows through only in a window made with WGUIWindowFlags_Transparent, on hosts that have such windows." },
+        { "name": "straight", "doc": "How much the pixel covers, with the colours as they are." }
+      ]
+    }
+  ],
+
+  "bitflags": [
+    {
+      "name": "event_class",
+      "doc": "Groups of events, for choosing which ones an instance queues. An event's class is the high byte of its type: the bit for it is 1 << (type >> 8).",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "system", "value": "0x2", "doc": "Lost events and completed requests. Always on." },
+        { "name": "application", "value": "0x4", "doc": "" },
+        { "name": "display", "value": "0x8", "doc": "" },
+        { "name": "window", "value": "0x10", "doc": "" },
+        { "name": "keyboard", "value": "0x20", "doc": "" },
+        { "name": "text", "value": "0x40", "doc": "" },
+        { "name": "pointer", "value": "0x80", "doc": "" },
+        { "name": "wheel", "value": "0x100", "doc": "" },
+        { "name": "raw", "value": "0x200", "doc": "Device input before the window system shapes it. Off unless asked for." },
+        { "name": "gesture", "value": "0x400", "doc": "Reserved." },
+        { "name": "clipboard", "value": "0x800", "doc": "" },
+        { "name": "drop", "value": "0x1000", "doc": "Reserved." },
+        { "name": "device", "value": "0x2000", "doc": "Reserved." },
+        { "name": "gamepad", "value": "0x4000", "doc": "Reserved." },
+        { "name": "default", "value_combination": ["system", "application", "display", "window", "keyboard", "text", "pointer", "wheel", "clipboard"], "doc": "What WGUI_INSTANCE_DESCRIPTOR_INIT asks for." }
+      ]
+    },
+    {
+      "name": "window_flags",
+      "doc": "A window's state. The low 16 bits can be asked for (at creation and with wguiWindowSetFlags); the rest are only reported.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "visible", "value": "0x1", "doc": "Shown on screen." },
+        { "name": "resizable", "value": "0x2", "doc": "The user can resize it." },
+        { "name": "decorated", "value": "0x4", "doc": "It has a title bar and borders." },
+        { "name": "minimized", "value": "0x8", "doc": "" },
+        { "name": "maximized", "value": "0x10", "doc": "" },
+        { "name": "always_on_top", "value": "0x20", "doc": "" },
+        { "name": "always_on_bottom", "value": "0x40", "doc": "" },
+        { "name": "transparent", "value": "0x80", "doc": "The window's background can show what is behind it. Only at creation." },
+        { "name": "requestable", "value": "0xFFFF", "doc": "Every bit a program can ask for." },
+        { "name": "focused", "value": "0x10000", "doc": "It has keyboard focus. Changes are announced by WGUIEventType_WindowFocusGained and WindowFocusLost, not by WindowFlagsChanged." },
+        { "name": "hovered", "value": "0x20000", "doc": "The mouse cursor is over it. Changes are announced by the mouse's WGUIEventType_PointerEnter and PointerLeave." },
+        { "name": "occluded", "value": "0x40000", "doc": "Nothing of it can be seen: drawing is wasted." },
+        { "name": "fullscreen", "value": "0x80000", "doc": "Changed with wguiWindowSetFullscreen." }
+      ]
+    },
+    {
+      "name": "window_options",
+      "width": 32,
+      "doc": "How to read a WGUIWindowDescriptor.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "logical_units", "doc": "The descriptor's sizes, limits and position are in logical units: the host multiplies them by the scale factor of the display the window opens on, which the program cannot know yet." },
+        { "name": "positioned", "doc": "Place the window at the descriptor's x and y." }
+      ]
+    },
+    {
+      "name": "fullscreen_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "no_deferral", "doc": "Fail with WGUIStatus_Denied instead of waiting for a user gesture." }
+      ]
+    },
+    {
+      "name": "wait_reasons",
+      "width": 32,
+      "doc": "Why wguiInstanceWaitEvents returned. None of them: the timeout passed.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "events", "doc": "The queue has records." },
+        { "name": "woken", "doc": "wguiInstanceWake was called." },
+        { "name": "interrupted", "doc": "The host ended the wait so that the system can reach the thread. Nothing happened; wait again." }
+      ]
+    },
+    {
+      "name": "event_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "synthetic", "doc": "Made by the host to keep the program's view consistent (a key release on focus loss), not caused by the user just now." },
+        { "name": "coalesced", "doc": "Stands for several events of the same kind that the host merged." }
+      ]
+    },
+    {
+      "name": "resize_flags",
+      "width": 32,
+      "doc": "What a WGUIEventType_WindowResized changed.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "size", "doc": "" },
+        { "name": "scale_factor", "doc": "" }
+      ]
+    },
+    {
+      "name": "modifiers",
+      "width": 32,
+      "doc": "Modifier keys. The low bits say what is in effect, whichever key causes it (sticky keys count); the high bits say which keys are held, where the host can tell. AltGraph is reported as AltGraph, not as Control and Alt.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "shift", "value": "0x1", "doc": "" },
+        { "name": "control", "value": "0x2", "doc": "" },
+        { "name": "alt", "value": "0x4", "doc": "" },
+        { "name": "super", "value": "0x8", "doc": "The Windows key, Command on a Mac." },
+        { "name": "alt_graph", "value": "0x10", "doc": "" },
+        { "name": "caps_lock", "value": "0x100", "doc": "Caps Lock is on." },
+        { "name": "num_lock", "value": "0x200", "doc": "" },
+        { "name": "scroll_lock", "value": "0x400", "doc": "" },
+        { "name": "left_shift", "value": "0x10000", "doc": "" },
+        { "name": "right_shift", "value": "0x20000", "doc": "" },
+        { "name": "left_control", "value": "0x40000", "doc": "" },
+        { "name": "right_control", "value": "0x80000", "doc": "" },
+        { "name": "left_alt", "value": "0x100000", "doc": "" },
+        { "name": "right_alt", "value": "0x200000", "doc": "" },
+        { "name": "left_super", "value": "0x400000", "doc": "" },
+        { "name": "right_super", "value": "0x800000", "doc": "" }
+      ]
+    },
+    {
+      "name": "key_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "repeat", "doc": "The key is being held: this press repeats the last one, with no release in between." },
+        { "name": "composing", "doc": "An input method took this key for the text it is composing." }
+      ]
+    },
+    {
+      "name": "pointer_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "primary", "doc": "The mouse cursor, the first finger down, or the pen. A program that handles one pointer handles the records with this flag." },
+        { "name": "in_contact", "doc": "A button is held, the finger touches, the pen's tip is down." },
+        { "name": "has_pressure", "doc": "The pressure field is measured, not assumed." },
+        { "name": "has_tilt", "doc": "The tilt and twist fields are measured." }
+      ]
+    },
+    {
+      "name": "pointer_buttons",
+      "width": 32,
+      "doc": "The buttons held: bit n - 1 for WGUIPointerButton n.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "primary", "doc": "" },
+        { "name": "secondary", "doc": "" },
+        { "name": "auxiliary", "doc": "" },
+        { "name": "back", "doc": "" },
+        { "name": "forward", "doc": "" },
+        { "name": "eraser", "doc": "" }
+      ]
+    },
+    {
+      "name": "wheel_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "momentum", "doc": "The fingers have left the touchpad: the scroll is coasting." },
+        { "name": "inverted", "doc": "The user's \"natural scrolling\" setting is on. The deltas already follow it." }
+      ]
+    },
+    {
+      "name": "text_input_hints",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "completion", "doc": "Suggestions are welcome." },
+        { "name": "spellcheck", "doc": "" },
+        { "name": "capitalize_sentences", "doc": "" },
+        { "name": "capitalize_words", "doc": "" },
+        { "name": "capitalize_characters", "doc": "" },
+        { "name": "hidden_text", "doc": "The field does not show what is typed." },
+        { "name": "sensitive_data", "doc": "Do not learn from or store what is typed." },
+        { "name": "latin", "doc": "Prefer a Latin layout." },
+        { "name": "multiline", "doc": "Enter inserts a line break." }
+      ]
+    },
+    {
+      "name": "text_input_state_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "active", "doc": "An input method is attached to the window." },
+        { "name": "screen_keyboard_visible", "doc": "" }
+      ]
+    },
+    {
+      "name": "text_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "from_key", "doc": "This text is what the key event just before it produced. A program that already used that event's text must not insert it again." },
+        { "name": "continues", "doc": "The text was too long for one record: the next record of this type continues it." }
+      ]
+    },
+    {
+      "name": "clipboard_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "owned", "doc": "This instance wrote the current content." },
+        { "name": "has_text", "doc": "There is text. Not set when the host cannot tell without a request." },
+        { "name": "needs_request", "doc": "Reading will answer WGUIStatus_Pending until a request completes." }
+      ]
+    },
+    {
+      "name": "default_actions",
+      "width": 32,
+      "doc": "The embedder's own reactions to input.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "keys", "doc": "Keys pressed without Control, Alt or Super: scrolling with the space bar and the arrows, moving focus with Tab." },
+        { "name": "shortcuts", "doc": "Key combinations the embedder lets a page take (save, print, find). Others (closing the tab) cannot be prevented." },
+        { "name": "wheel", "doc": "Scrolling and zooming the page." },
+        { "name": "context_menu", "doc": "" },
+        { "name": "touch_gestures", "doc": "Panning and zooming the page by touch." },
+        { "name": "default", "value_combination": ["keys", "wheel", "context_menu", "touch_gestures"], "doc": "What a new window prevents." }
+      ]
+    },
+    {
+      "name": "display_flags",
+      "width": 32,
+      "doc": "",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "primary", "doc": "" }
+      ]
+    },
+    {
+      "name": "input_devices",
+      "width": 32,
+      "doc": "Kinds of input hardware.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "keyboard", "doc": "" },
+        { "name": "mouse", "doc": "" },
+        { "name": "touch", "doc": "" },
+        { "name": "pen", "doc": "" }
+      ]
+    }
+  ],
+
+  "structs": [
+    {
+      "name": "rect",
+      "type": "standalone",
+      "doc": "A rectangle in a window, in physical pixels from the content area's top-left corner.",
+      "members": [
+        { "name": "x", "type": "int32", "doc": "" },
+        { "name": "y", "type": "int32", "doc": "" },
+        { "name": "width", "type": "uint32", "doc": "" },
+        { "name": "height", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "instance_descriptor",
+      "type": "extensible",
+      "doc": "",
+      "members": [
+        { "name": "abi_version", "type": "uint32", "default": "constant.abi_version", "doc": "The version of the header the program was built with. Leave it as the INIT macro sets it." },
+        { "name": "event_mask", "type": "bitflag.event_class", "default": "default", "doc": "The classes of events to queue. See wguiInstanceSetEventMask." },
+        { "name": "required_features", "type": "array<enum.feature_name>", "pointer": "immutable", "doc": "Features the program cannot do without." },
+        { "name": "application_id", "type": "string", "doc": "A stable name for the program, such as \"org.example.editor\". Window systems use it to group windows and to find the program's icon and name." }
+      ]
+    },
+    {
+      "name": "instance_info",
+      "type": "extensible",
+      "written": true,
+      "doc": "",
+      "members": [
+        { "name": "abi_version", "type": "uint32", "doc": "The newest version the host implements." },
+        { "name": "host_kind", "type": "enum.host_kind", "doc": "" },
+        { "name": "shortcut_modifier", "type": "bitflag.modifiers", "doc": "The modifier this platform's shortcuts use: Control, or Super on a Mac." },
+        { "name": "input_devices", "type": "bitflag.input_devices", "doc": "The input hardware the host knows of. A keyboard missing here is the reason to show an on-screen one." },
+        { "name": "system_theme", "type": "enum.theme", "doc": "" },
+        { "name": "max_cursor_size", "type": "uint32", "doc": "The largest width or height a custom cursor may have, in pixels. 0 if unknown." }
+      ]
+    },
+    {
+      "name": "display_info",
+      "type": "extensible",
+      "written": true,
+      "doc": "",
+      "members": [
+        { "name": "x", "type": "int32", "doc": "The display's top-left corner on the desktop." },
+        { "name": "y", "type": "int32", "doc": "" },
+        { "name": "width", "type": "uint32", "doc": "" },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "work_x", "type": "int32", "doc": "The part of the display windows can use: without docks, panels and menu bars." },
+        { "name": "work_y", "type": "int32", "doc": "" },
+        { "name": "work_width", "type": "uint32", "doc": "" },
+        { "name": "work_height", "type": "uint32", "doc": "" },
+        { "name": "scale_factor", "type": "float64", "doc": "Physical pixels per logical unit." },
+        { "name": "refresh_rate", "type": "uint32", "doc": "In thousandths of a hertz. 0 if unknown." },
+        { "name": "flags", "type": "bitflag.display_flags", "doc": "" }
+      ]
+    },
+    {
+      "name": "window_descriptor",
+      "type": "extensible",
+      "doc": "",
+      "members": [
+        { "name": "title", "type": "string", "doc": "" },
+        { "name": "target", "type": "string", "doc": "The name of a target the embedder provides (a canvas, a view) for the window to adopt. Empty is the embedder's default target. Naming a target does not need WGUIFeatureName_TopLevelWindows; a target already adopted answers WGUIStatus_Busy." },
+        { "name": "flags", "type": "bitflag.window_flags", "default": ["visible", "resizable", "decorated"], "doc": "The requestable flags to start with." },
+        { "name": "options", "type": "bitflag.window_options", "doc": "" },
+        { "name": "width", "type": "uint32", "doc": "The size of the content area. 0 lets the host choose. An adopted target keeps its own size." },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "min_width", "type": "uint32", "doc": "Limits, as in wguiWindowSetSizeLimits." },
+        { "name": "min_height", "type": "uint32", "doc": "" },
+        { "name": "max_width", "type": "uint32", "doc": "" },
+        { "name": "max_height", "type": "uint32", "doc": "" },
+        { "name": "x", "type": "int32", "doc": "Used with WGUIWindowOptions_Positioned." },
+        { "name": "y", "type": "int32", "doc": "" },
+        { "name": "display", "type": "object.display", "doc": "The display to open on. 0 lets the host choose." }
+      ]
+    },
+    {
+      "name": "window_state",
+      "type": "extensible",
+      "written": true,
+      "doc": "",
+      "members": [
+        { "name": "width", "type": "uint32", "doc": "The size of the content area: what a surface on the window should be configured with." },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "scale_factor", "type": "float64", "doc": "Physical pixels per logical unit, for sizing text and controls." },
+        { "name": "x", "type": "int32", "doc": "The content area's top-left corner on the desktop, or WGUI_POSITION_UNDEFINED." },
+        { "name": "y", "type": "int32", "doc": "" },
+        { "name": "frame_left", "type": "uint32", "doc": "How far the window's borders and title bar reach beyond the content area." },
+        { "name": "frame_top", "type": "uint32", "doc": "" },
+        { "name": "frame_right", "type": "uint32", "doc": "" },
+        { "name": "frame_bottom", "type": "uint32", "doc": "" },
+        { "name": "safe_left", "type": "uint32", "doc": "How much of the content area's edges may be covered by notches, rounded corners or system bars." },
+        { "name": "safe_top", "type": "uint32", "doc": "" },
+        { "name": "safe_right", "type": "uint32", "doc": "" },
+        { "name": "safe_bottom", "type": "uint32", "doc": "" },
+        { "name": "flags", "type": "bitflag.window_flags", "doc": "" },
+        { "name": "display", "type": "object.display", "doc": "The display most of the window is on, or 0." },
+        { "name": "fullscreen", "type": "enum.fullscreen_mode", "doc": "" },
+        { "name": "cursor_grab", "type": "enum.cursor_grab", "doc": "The grab in effect now, which may be less than what was asked for." },
+        { "name": "theme", "type": "enum.theme", "doc": "" },
+        { "name": "serial", "type": "uint32", "doc": "Goes up whenever anything in this struct changes." }
+      ]
+    },
+    {
+      "name": "fullscreen_options",
+      "type": "extensible",
+      "doc": "",
+      "members": [
+        { "name": "mode", "type": "enum.fullscreen_mode", "default": "borderless", "doc": "" },
+        { "name": "display", "type": "object.display", "doc": "The display to cover. 0 is the one the window is on." },
+        { "name": "flags", "type": "bitflag.fullscreen_flags", "doc": "" }
+      ]
+    },
+    {
+      "name": "cursor_descriptor",
+      "type": "extensible",
+      "doc": "",
+      "members": [
+        { "name": "width", "type": "uint32", "doc": "The image's size in pixels." },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "hotspot_x", "type": "uint32", "doc": "The pixel that points." },
+        { "name": "hotspot_y", "type": "uint32", "doc": "" },
+        { "name": "scale_factor", "type": "float64", "default": "1.0", "doc": "How many image pixels make one logical unit: 2 for an image drawn for a display of scale factor 2." },
+        { "name": "pixels", "type": "c_void", "pointer": "immutable", "doc": "RGBA, 8 bits each, alpha not premultiplied, rows from the top, no padding." },
+        { "name": "pixels_size", "type": "usize", "doc": "width * height * 4." }
+      ]
+    },
+    {
+      "name": "pixel_frame",
+      "type": "extensible",
+      "doc": "A frame for wguiWindowPresentPixels: rows of pixels from the top, each row from the left.",
+      "members": [
+        { "name": "width", "type": "uint32", "doc": "The frame's size in pixels." },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "stride", "type": "uint32", "doc": "Bytes from the start of one row to the start of the next. 0 means width * 4: no padding." },
+        { "name": "format", "type": "enum.pixel_format", "default": "bgra8", "doc": "" },
+        { "name": "alpha", "type": "enum.pixel_alpha", "default": "opaque", "doc": "" },
+        { "name": "pixels", "type": "c_void", "pointer": "immutable", "doc": "" },
+        { "name": "pixels_size", "type": "usize", "doc": "How much of `pixels` may be read: at least stride * (height - 1) + width * 4." }
+      ]
+    },
+    {
+      "name": "text_input_descriptor",
+      "type": "extensible",
+      "doc": "",
+      "members": [
+        { "name": "purpose", "type": "enum.text_input_purpose", "doc": "" },
+        { "name": "hints", "type": "bitflag.text_input_hints", "doc": "" },
+        { "name": "screen_keyboard", "type": "enum.screen_keyboard_policy", "doc": "" },
+        { "name": "cursor_area", "type": "struct.rect", "doc": "Where the caret is, so the input method can put its candidate window next to it." },
+        { "name": "input_area", "type": "struct.rect", "doc": "The whole text field, so an on-screen keyboard can avoid covering it. Zero size if unknown." }
+      ]
+    },
+    {
+      "name": "clipboard_info",
+      "type": "extensible",
+      "written": true,
+      "doc": "",
+      "members": [
+        { "name": "sequence", "type": "uint32", "doc": "Goes up whenever the content changes, as far as the host notices." },
+        { "name": "flags", "type": "bitflag.clipboard_flags", "doc": "" }
+      ]
+    },
+    {
+      "name": "clipboard_item",
+      "type": "standalone",
+      "doc": "One representation of what is being copied.",
+      "members": [
+        { "name": "mime_type", "type": "string", "doc": "\"text/plain\" for UTF-8 text." },
+        { "name": "data", "type": "c_void", "pointer": "immutable", "doc": "" },
+        { "name": "size", "type": "usize", "doc": "" }
+      ]
+    }
+  ],
+
+  "event_header": {
+    "doc": "What every event record starts with. Records are little-endian, 8-byte aligned, and say how long they are: a record a program does not know, or one longer than it expects, is stepped over by its size.",
+    "members": [
+      { "name": "size", "type": "uint32", "doc": "The whole record in bytes, strings and padding included; a multiple of 8. The next record starts this far on." },
+      { "name": "type", "type": "enum.event_type", "doc": "" },
+      { "name": "flags", "type": "bitflag.event_flags", "doc": "" },
+      { "name": "window", "type": "object.window", "doc": "The window the event is for, or 0." },
+      { "name": "timestamp", "type": "uint64", "doc": "When it happened, in nanoseconds on the clock of wguiInstanceGetTime. Never decreases from one record to the next." },
+      { "name": "device", "type": "uint32", "doc": "Which piece of hardware, where the host can tell them apart; 0 otherwise." },
+      { "name": "sequence", "type": "uint32", "doc": "Counts the records this instance has been given." }
+    ]
+  },
+
+  "event_records": [
+    {
+      "name": "events_lost_event",
+      "doc": "The queue overflowed and records were dropped. What follows makes the program's view right again: releases for keys and buttons it believes held, and each window's current size and flags. Dropped text is gone.",
+      "members": [
+        { "name": "count", "type": "uint32", "doc": "How many records were dropped." },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "classes", "type": "bitflag.event_class", "doc": "The classes they belonged to." }
+      ]
+    },
+    {
+      "name": "request_completed_event",
+      "doc": "A request made with a tag is over. Every accepted request gets exactly one, also when its window is destroyed first.",
+      "members": [
+        { "name": "tag", "type": "uint64", "doc": "The tag the program passed." },
+        { "name": "kind", "type": "enum.request_kind", "doc": "" },
+        { "name": "status", "type": "enum.status", "doc": "" }
+      ]
+    },
+    {
+      "name": "theme_event",
+      "doc": "",
+      "members": [
+        { "name": "theme", "type": "enum.theme", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "window_resized_event",
+      "doc": "The window's content area has a new size or scale factor. A surface on it should be configured again with this size.",
+      "members": [
+        { "name": "width", "type": "uint32", "doc": "" },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "scale_factor", "type": "float64", "doc": "" },
+        { "name": "changed", "type": "bitflag.resize_flags", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "window_moved_event",
+      "doc": "",
+      "members": [
+        { "name": "x", "type": "int32", "doc": "" },
+        { "name": "y", "type": "int32", "doc": "" }
+      ]
+    },
+    {
+      "name": "window_flags_changed_event",
+      "doc": "",
+      "members": [
+        { "name": "flags", "type": "bitflag.window_flags", "doc": "All of the window's flags now." },
+        { "name": "changed", "type": "bitflag.window_flags", "doc": "The ones that differ from before." }
+      ]
+    },
+    {
+      "name": "window_display_changed_event",
+      "doc": "",
+      "members": [
+        { "name": "display", "type": "object.display", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "window_cursor_grab_changed_event",
+      "doc": "",
+      "members": [
+        { "name": "grab", "type": "enum.cursor_grab", "doc": "The grab in effect now." },
+        { "name": "reason", "type": "enum.cursor_grab_reason", "doc": "" }
+      ]
+    },
+    {
+      "name": "key_event",
+      "doc": "A key went down or up.\n\nPer window, downs and ups pair up: no release arrives for a press the window did not get. A held key repeats as further downs flagged Repeat. Before a window loses focus it gets a synthetic release for every key still down.\n\n`text` is what the press types through the keyboard layout, with or without text input on. While text input is on, the same text also arrives as a WGUIEventType_TextCommit flagged FromKey.",
+      "members": [
+        { "name": "physical_key", "type": "enum.physical_key", "doc": "Which key, wherever the layout puts its letters." },
+        { "name": "native_scancode", "type": "uint32", "doc": "The platform's own code for the key, for keys physicalKey cannot name. 0 if unknown." },
+        { "name": "key", "type": "key", "doc": "What the key means with the modifiers held, Control aside." },
+        { "name": "key_unmodified", "type": "key", "doc": "What it means with no modifier held: the layout's base layer. 0 if unknown." },
+        { "name": "modifiers", "type": "bitflag.modifiers", "doc": "The modifiers after this event." },
+        { "name": "key_flags", "type": "bitflag.key_flags", "doc": "" },
+        { "name": "location", "type": "enum.key_location", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "key_string", "type": "event_string", "doc": "`key` as text when it is a character, a dead key or a sequence." },
+        { "name": "text", "type": "event_string", "doc": "The text this press types. Absent for releases and for keys that type nothing." },
+        { "name": "text_with_all_modifiers", "type": "event_string", "doc": "The same with Control applied too, as terminals want it (Control+C is U+0003)." }
+      ]
+    },
+    {
+      "name": "modifiers_changed_event",
+      "doc": "The modifiers changed. Follows the key event that caused it, and focus gained when some are already held.",
+      "members": [
+        { "name": "modifiers", "type": "bitflag.modifiers", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "text_input_state_event",
+      "doc": "",
+      "members": [
+        { "name": "state_flags", "type": "bitflag.text_input_state_flags", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "keyboard_area", "type": "struct.rect", "doc": "The part of the window an on-screen keyboard covers. Zero size if none." }
+      ]
+    },
+    {
+      "name": "text_composition_event",
+      "doc": "The text being composed by an input method: it replaces the composition shown so far, and empty text ends it. Draw it at the caret, marked as unfinished; it is not part of the document.",
+      "members": [
+        { "name": "selection_start", "type": "uint32", "doc": "The input method's cursor or selection inside the text, as byte offsets, or WGUI_NO_TEXT_CURSOR." },
+        { "name": "selection_end", "type": "uint32", "doc": "" },
+        { "name": "text_flags", "type": "bitflag.text_flags", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "text", "type": "event_string", "doc": "" }
+      ]
+    },
+    {
+      "name": "text_commit_event",
+      "doc": "Text to insert at the caret. Ends the composition, if there is one. While text input is on, every insertion arrives this way, typed keys included.",
+      "members": [
+        { "name": "text_flags", "type": "bitflag.text_flags", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "text", "type": "event_string", "doc": "" }
+      ]
+    },
+    {
+      "name": "pointer_event",
+      "doc": "A mouse cursor, a finger or a pen did something over a window.\n\nEvery press and every release is its own Down or Up. From a Down until the pointer's last button is up, its events go to that window even when it moves outside. Cancel means all of that pointer's buttons are up and the gesture should be undone.",
+      "members": [
+        { "name": "pointer_id", "type": "uint32", "doc": "" },
+        { "name": "pointer_kind", "type": "enum.pointer_kind", "doc": "" },
+        { "name": "pointer_flags", "type": "bitflag.pointer_flags", "doc": "" },
+        { "name": "button", "type": "enum.pointer_button", "open": true, "doc": "The button that went down or up." },
+        { "name": "buttons", "type": "bitflag.pointer_buttons", "doc": "The buttons held after this event." },
+        { "name": "modifiers", "type": "bitflag.modifiers", "doc": "" },
+        { "name": "x", "type": "float64", "doc": "Position in the window." },
+        { "name": "y", "type": "float64", "doc": "" },
+        { "name": "delta_x", "type": "float64", "doc": "Movement since this pointer's previous record. With the cursor locked this is all that changes." },
+        { "name": "delta_y", "type": "float64", "doc": "" },
+        { "name": "pressure", "type": "float32", "doc": "0 to 1. Without WGUIPointerFlags_HasPressure: 0.5 in contact, else 0." },
+        { "name": "tangential_pressure", "type": "float32", "doc": "A pen's barrel pressure, -1 to 1." },
+        { "name": "tilt_x", "type": "float32", "doc": "Degrees from upright, -90 to 90." },
+        { "name": "tilt_y", "type": "float32", "doc": "" },
+        { "name": "twist", "type": "float32", "doc": "Degrees of rotation about the pen's axis, 0 to 360." },
+        { "name": "contact_width", "type": "float32", "doc": "The size of the contact, in physical pixels. 0 if unknown." },
+        { "name": "contact_height", "type": "float32", "doc": "" },
+        { "name": "tool", "type": "enum.pointer_tool", "doc": "" },
+        { "name": "click_count", "type": "uint32", "doc": "For a Down or Up: 2 for a double click, as the system counts them. 0 if unknown." },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "wheel_event",
+      "doc": "A wheel turned or a touchpad scrolled. Positive deltaY scrolls the content up, showing what is below; positive deltaX shows what is to the right.",
+      "members": [
+        { "name": "unit", "type": "enum.wheel_unit", "doc": "" },
+        { "name": "phase", "type": "enum.wheel_phase", "doc": "" },
+        { "name": "wheel_flags", "type": "bitflag.wheel_flags", "doc": "" },
+        { "name": "modifiers", "type": "bitflag.modifiers", "doc": "" },
+        { "name": "delta_x", "type": "float64", "doc": "" },
+        { "name": "delta_y", "type": "float64", "doc": "" },
+        { "name": "x", "type": "float64", "doc": "Where the cursor is." },
+        { "name": "y", "type": "float64", "doc": "" }
+      ]
+    },
+    {
+      "name": "raw_motion_event",
+      "doc": "A mouse moved, as the device reports it: no acceleration, no window.",
+      "members": [
+        { "name": "delta_x", "type": "float64", "doc": "" },
+        { "name": "delta_y", "type": "float64", "doc": "" }
+      ]
+    },
+    {
+      "name": "raw_button_event",
+      "doc": "",
+      "members": [
+        { "name": "button", "type": "enum.pointer_button", "open": true, "doc": "" },
+        { "name": "pressed", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "raw_wheel_event",
+      "doc": "",
+      "members": [
+        { "name": "unit", "type": "enum.wheel_unit", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" },
+        { "name": "delta_x", "type": "float64", "doc": "" },
+        { "name": "delta_y", "type": "float64", "doc": "" }
+      ]
+    },
+    {
+      "name": "raw_key_event",
+      "doc": "",
+      "members": [
+        { "name": "physical_key", "type": "enum.physical_key", "doc": "" },
+        { "name": "native_scancode", "type": "uint32", "doc": "" },
+        { "name": "pressed", "type": "uint32", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    },
+    {
+      "name": "clipboard_changed_event",
+      "doc": "",
+      "members": [
+        { "name": "selection", "type": "enum.clipboard_selection", "doc": "" },
+        { "name": "clipboard_flags", "type": "bitflag.clipboard_flags", "doc": "" },
+        { "name": "clipboard_sequence", "type": "uint32", "doc": "" },
+        { "name": "reserved", "type": "uint32", "doc": "" }
+      ]
+    }
+  ],
+
+  "event_classes": [
+    { "name": "system", "value": 1 },
+    { "name": "application", "value": 2 },
+    { "name": "display", "value": 3 },
+    { "name": "window", "value": 4 },
+    { "name": "keyboard", "value": 5 },
+    { "name": "text", "value": 6 },
+    { "name": "pointer", "value": 7 },
+    { "name": "wheel", "value": 8 },
+    { "name": "raw", "value": 9 },
+    { "name": "gesture", "value": 10 },
+    { "name": "clipboard", "value": 11 },
+    { "name": "drop", "value": 12 },
+    { "name": "device", "value": 13 },
+    { "name": "gamepad", "value": 14 }
+  ],
+
+  "events": [
+    { "name": "events_lost", "class": "system", "index": 1, "record": "events_lost_event", "doc": "" },
+    { "name": "request_completed", "class": "system", "index": 2, "record": "request_completed_event", "doc": "" },
+
+    { "name": "app_suspended", "class": "application", "index": 1, "doc": "The program is no longer in front of the user (a phone's home screen, a hidden tab). Its windows may be unusable until it resumes." },
+    { "name": "app_resumed", "class": "application", "index": 2, "doc": "" },
+    { "name": "app_quit_requested", "class": "application", "index": 3, "doc": "The user asked the whole program to quit. It decides whether to." },
+    { "name": "app_terminating", "class": "application", "index": 4, "doc": "The program is about to be stopped whatever it does. Save now." },
+    { "name": "app_theme_changed", "class": "application", "index": 5, "record": "theme_event", "doc": "The system switched between light and dark." },
+
+    { "name": "displays_changed", "class": "display", "index": 1, "doc": "A display was added, removed or changed. List them again." },
+
+    { "name": "window_resized", "class": "window", "index": 1, "record": "window_resized_event", "doc": "" },
+    { "name": "window_moved", "class": "window", "index": 2, "record": "window_moved_event", "doc": "" },
+    { "name": "window_flags_changed", "class": "window", "index": 3, "record": "window_flags_changed_event", "doc": "" },
+    { "name": "window_focus_gained", "class": "window", "index": 4, "doc": "" },
+    { "name": "window_focus_lost", "class": "window", "index": 5, "doc": "Comes after the synthetic releases of the keys that were down." },
+    { "name": "window_close_requested", "class": "window", "index": 6, "doc": "The user asked to close the window. Nothing has happened to it: the program destroys it, or asks the user first, or carries on." },
+    { "name": "window_redraw_requested", "class": "window", "index": 7, "doc": "The window should be drawn again: the program asked with wguiWindowRequestRedraw, or the system uncovered it. A new window is not asked: its first WGUIEventType_WindowResized is when to draw it for the first time." },
+    { "name": "window_display_changed", "class": "window", "index": 8, "record": "window_display_changed_event", "doc": "" },
+    { "name": "window_theme_changed", "class": "window", "index": 9, "record": "theme_event", "doc": "" },
+    { "name": "window_cursor_grab_changed", "class": "window", "index": 10, "record": "window_cursor_grab_changed_event", "doc": "" },
+    { "name": "window_lost", "class": "window", "index": 12, "doc": "The window's host side is gone (the embedder removed its target). The handle only remains to be destroyed." },
+
+    { "name": "key_down", "class": "keyboard", "index": 1, "record": "key_event", "doc": "" },
+    { "name": "key_up", "class": "keyboard", "index": 2, "record": "key_event", "doc": "" },
+    { "name": "modifiers_changed", "class": "keyboard", "index": 3, "record": "modifiers_changed_event", "doc": "" },
+
+    { "name": "text_input_state", "class": "text", "index": 1, "record": "text_input_state_event", "doc": "" },
+    { "name": "text_composition", "class": "text", "index": 2, "record": "text_composition_event", "doc": "" },
+    { "name": "text_commit", "class": "text", "index": 3, "record": "text_commit_event", "doc": "" },
+
+    { "name": "pointer_enter", "class": "pointer", "index": 1, "record": "pointer_event", "doc": "" },
+    { "name": "pointer_leave", "class": "pointer", "index": 2, "record": "pointer_event", "doc": "" },
+    { "name": "pointer_motion", "class": "pointer", "index": 3, "record": "pointer_event", "doc": "" },
+    { "name": "pointer_down", "class": "pointer", "index": 4, "record": "pointer_event", "doc": "" },
+    { "name": "pointer_up", "class": "pointer", "index": 5, "record": "pointer_event", "doc": "" },
+    { "name": "pointer_cancel", "class": "pointer", "index": 6, "record": "pointer_event", "doc": "" },
+
+    { "name": "wheel", "class": "wheel", "index": 1, "record": "wheel_event", "doc": "" },
+
+    { "name": "raw_motion", "class": "raw", "index": 1, "record": "raw_motion_event", "doc": "" },
+    { "name": "raw_button", "class": "raw", "index": 2, "record": "raw_button_event", "doc": "" },
+    { "name": "raw_wheel", "class": "raw", "index": 3, "record": "raw_wheel_event", "doc": "" },
+    { "name": "raw_key", "class": "raw", "index": 4, "record": "raw_key_event", "doc": "" },
+
+    { "name": "clipboard_changed", "class": "clipboard", "index": 1, "record": "clipboard_changed_event", "doc": "" }
+  ]
+}

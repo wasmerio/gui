@@ -1,0 +1,31 @@
+{
+  "steps": [
+    { "focus": true },
+    { "type": "a" },
+    { "down": { "code": "F4", "key": "F4" } },
+    { "up": { "code": "F4", "key": "F4" } },
+    { "expect": ["text-input Normal at 10,20 2x16"] },
+    { "type": "hi" },
+    { "down": { "code": "Enter", "key": "Enter", "text": "\r" } },
+    { "up": { "code": "Enter", "key": "Enter" } },
+    { "down": { "code": "KeyN", "key": "Process", "composing": true } },
+    { "compose": { "text": "に", "cursor": [3, 3] } },
+    { "up": { "code": "KeyN", "key": "Process", "composing": true } },
+    { "compose": { "text": "にほん", "cursor": [9, 9] } },
+    { "compose": { "text": "日本", "cursor": null } },
+    { "commit": "日本" },
+    { "down": { "code": "Backquote", "key": "Dead \u0300" } },
+    { "up": { "code": "Backquote", "key": "Dead \u0300" } },
+    { "down": { "code": "KeyE", "key": "è", "base": "e", "text": "è" } },
+    { "up": { "code": "KeyE", "key": "è", "base": "e" } },
+    { "down": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": ["control", "left_control"] } },
+    { "down": { "code": "KeyC", "key": "c", "text": "c" } },
+    { "up": { "code": "KeyC", "key": "c" } },
+    { "up": { "code": "ControlLeft", "key": "Control", "location": "left", "mods": [] } },
+    { "down": { "code": "F4", "key": "F4" } },
+    { "up": { "code": "F4", "key": "F4" } },
+    { "expect": ["text-input off"] },
+    { "type": "z" },
+    "close"
+  ]
+}

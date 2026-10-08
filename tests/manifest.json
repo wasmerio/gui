@@ -1,0 +1,23 @@
+{
+  "_comment": "The test programs, what plays the user for each, and where what each should print is kept (tests/expected/<name>.txt). WGUI_BLESS=1 cargo test rewrites those files from what the programs print now.",
+  "runs": [
+    {"name": "link_all", "program": "link_all"},
+    {"name": "threads", "program": "threads"},
+    {"name": "newer", "program": "newer"},
+    {"name": "misuse", "program": "misuse"},
+    {"name": "signals_polling", "program": "signals", "args": ["poll"]},
+    {"name": "signals_waiting", "program": "signals", "args": ["wait"]},
+    {"name": "signals_sleeping", "program": "signals", "args": ["sleep"]},
+    {"name": "basics", "program": "events", "script": "basics"},
+    {"name": "requests", "program": "events", "script": "requests"},
+    {"name": "text", "program": "events", "script": "text"},
+    {"name": "clipboard", "program": "events", "script": "clipboard"},
+    {"name": "clipboard_asking", "program": "events", "script": "clipboard_asking"},
+    {"name": "clipboard_denied", "program": "events", "script": "clipboard_denied"},
+    {"name": "touch", "program": "events", "script": "touch"},
+    {"name": "scale", "program": "events", "script": "scale", "args": ["--logical", "--size", "400x300", "--target", "canvas"]},
+    {"name": "raw", "program": "events", "script": "raw", "args": ["--raw"]},
+    {"name": "window_smoke", "program": "window_smoke"},
+    {"name": "pixels", "program": "pixels"}
+  ]
+}

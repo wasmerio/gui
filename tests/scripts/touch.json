@@ -1,0 +1,20 @@
+{
+  "steps": [
+    { "focus": true },
+    { "touch": { "id": 100, "phase": "down", "at": [50, 60] } },
+    { "touch": { "id": 100, "phase": "move", "at": [55, 66] } },
+    { "touch": { "id": 200, "phase": "down", "at": [300, 300] } },
+    { "touch": { "id": 200, "phase": "move", "at": [310, 290] } },
+    { "touch": { "id": 100, "phase": "up", "at": [55, 66] } },
+    { "touch": { "id": 300, "phase": "down", "at": [10, 10] } },
+    { "focus": false },
+    { "touch": { "id": 200, "phase": "move", "at": [1, 1] } },
+    { "focus": true },
+    { "touch": { "id": 400, "phase": "down", "at": [7, 7] } },
+    { "touch": { "id": 400, "phase": "cancel", "at": [7, 7] } },
+    { "scroll": { "phase": "began" } },
+    { "scroll": { "phase": "changed", "delta": [0, 12.5] } },
+    { "scroll": { "phase": "ended" } },
+    "close"
+  ]
+}

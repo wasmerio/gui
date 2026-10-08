@@ -1,0 +1,3 @@
+in a loop that only sleeps
+SIGUSR1 reached it
+done

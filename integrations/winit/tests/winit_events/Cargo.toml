@@ -1,0 +1,18 @@
+[package]
+name = "winit_events"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Prints every winit event it gets: what the WASIX backend makes of the host's records"
+
+# A crate of its own, whatever directory it is checked out in.
+[workspace]
+
+# As an application would name them. That they are the ones of this directory
+# is said where it is built (`[patch.crates-io]`, see ../../build.sh).
+[dependencies]
+winit = { version = "0.30.13", default-features = false, features = ["rwh_06"] }
+softbuffer = { version = "0.4.8", default-features = false }
+
+[profile.release]
+opt-level = "s"

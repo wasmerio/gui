@@ -1,0 +1,23 @@
+resumed
+monitor "Headless" 2880x1800 scale 2 at 60000 mHz, primary
+window 1280x960 scale 2 theme Some(Light), surface selector wgui: and 32 more
+Resized 1280x960
+RedrawRequested: drew 1280x960
+Focused true
+CursorEntered
+CursorMoved 100,60
+CursorMoved 300,200
+KeyboardInput Pressed F4 key=F4 unmodified=F4 text=None all=None Standard
+input methods on
+Ime Enabled
+KeyboardInput Released F4 key=F4 unmodified=F4 text=None all=None Standard
+KeyboardInput Pressed F7 key=F7 unmodified=F7 text=None all=None Standard
+size 400x300: None
+Resized 800x600
+RedrawRequested: drew 800x600
+KeyboardInput Released F7 key=F7 unmodified=F7 text=None all=None Standard
+Resized 1000x500
+RedrawRequested: drew 1000x500
+CloseRequested
+exiting at 1000x500 after 3 frames
+done

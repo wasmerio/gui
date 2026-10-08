@@ -1,0 +1,148 @@
+{
+ "steps": [
+  {
+   "focus": true
+  },
+  {
+   "type": "a"
+  },
+  {
+   "down": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "up": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "expect": [
+    "cursor-shape Default",
+    "pixels 640x480",
+    "text-input Normal at 10,20 2x16"
+   ]
+  },
+  {
+   "type": "hi"
+  },
+  {
+   "down": {
+    "code": "Enter",
+    "key": "Enter",
+    "text": "\r"
+   }
+  },
+  {
+   "up": {
+    "code": "Enter",
+    "key": "Enter"
+   }
+  },
+  {
+   "down": {
+    "code": "KeyN",
+    "key": "Process",
+    "composing": true
+   }
+  },
+  {
+   "compose": {
+    "text": "\u306b",
+    "cursor": [
+     3,
+     3
+    ]
+   }
+  },
+  {
+   "up": {
+    "code": "KeyN",
+    "key": "Process",
+    "composing": true
+   }
+  },
+  {
+   "compose": {
+    "text": "\u306b\u307b\u3093",
+    "cursor": [
+     3,
+     9
+    ]
+   }
+  },
+  {
+   "compose": {
+    "text": "\u65e5\u672c",
+    "cursor": null
+   }
+  },
+  {
+   "commit": "\u65e5\u672c"
+  },
+  {
+   "down": {
+    "code": "Backquote",
+    "key": "Dead \u0300"
+   }
+  },
+  {
+   "up": {
+    "code": "Backquote",
+    "key": "Dead \u0300"
+   }
+  },
+  {
+   "down": {
+    "code": "KeyE",
+    "key": "\u00e8",
+    "base": "e",
+    "text": "\u00e8"
+   }
+  },
+  {
+   "up": {
+    "code": "KeyE",
+    "key": "\u00e8",
+    "base": "e"
+   }
+  },
+  {
+   "down": {
+    "code": "Space",
+    "key": " ",
+    "text": " "
+   }
+  },
+  {
+   "up": {
+    "code": "Space",
+    "key": " "
+   }
+  },
+  {
+   "down": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "up": {
+    "code": "F4",
+    "key": "F4"
+   }
+  },
+  {
+   "expect": [
+    "text-input Normal at 10,20 2x16",
+    "text-input off"
+   ]
+  },
+  {
+   "type": "z"
+  },
+  "close"
+ ]
+}

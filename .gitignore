@@ -1,0 +1,17 @@
+target/
+tests/programs/out/
+tests/programs/gpu/out/
+examples/out/
+integrations/sdl3/work/
+integrations/sdl3/tests/out/
+integrations/sdl3/imgui/out/
+integrations/winit/work/
+integrations/winit/tests/out/
+integrations/winit/example/out/
+Cargo.lock
+!/Cargo.lock
+dist/
+node_modules/
+.DS_Store
+__pycache__/
+*.pyc

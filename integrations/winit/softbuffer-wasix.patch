@@ -1,0 +1,112 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 68238c0..c053725 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -110,11 +110,16 @@ objc2-quartz-core = { version = "0.3.2", default-features = false, features = [
+     "CATransaction",
+ ] }
+ 
+-[target.'cfg(target_family = "wasm")'.dependencies]
++# WASIX: frames go to the Wasmer runtime, through the imports this crate declares.
++[target.'cfg(all(target_os = "wasi", target_vendor = "wasmer"))'.dependencies]
++wasmer-gui-sys = "0.1"
++
++# Web only: WASIX (`wasm32-wasmer-wasi`) is `target_family = "wasm"` too, but has no JS host.
++[target.'cfg(all(target_family = "wasm", not(all(target_os = "wasi", target_vendor = "wasmer"))))'.dependencies]
+ js-sys = "0.3.63"
+ wasm-bindgen = "0.2.86"
+ 
+-[target.'cfg(target_family = "wasm")'.dependencies.web-sys]
++[target.'cfg(all(target_family = "wasm", not(all(target_os = "wasi", target_vendor = "wasmer"))))'.dependencies.web-sys]
+ version = "0.3.55"
+ features = [
+     "CanvasRenderingContext2d",
+@@ -152,12 +157,17 @@ features = ["jpeg"]
+ # Turn rayon back on everywhere else; creating the separate entry resets the features to default.
+ rayon = "1.5.1"
+ 
+-[target.'cfg(target_family = "wasm")'.dev-dependencies]
++[target.'cfg(all(target_family = "wasm", not(all(target_os = "wasi", target_vendor = "wasmer"))))'.dev-dependencies]
+ wasm-bindgen-test = "0.3"
+ 
+ [target.'cfg(not(any(target_os = "android", target_vendor = "apple", target_os = "redox", target_family = "wasm", target_os = "windows")))'.dev-dependencies]
+ rustix = { version = "1.0.1", features = ["event"] }
+ 
++# `target_vendor = "wasmer"` (WASIX) is only known to the WASIX toolchain's rustc; without this,
++# upstream toolchains warn about every `#[cfg(...)]` that selects the WASIX backend.
++[lints.rust]
++unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_vendor, values("wasmer"))'] }
++
+ [workspace]
+ members = ["run-wasm"]
+ 
+diff --git a/src/backend_dispatch.rs b/src/backend_dispatch.rs
+index 3bfe94b..a1ed223 100644
+--- a/src/backend_dispatch.rs
++++ b/src/backend_dispatch.rs
+@@ -270,8 +270,10 @@ make_dispatch! {
+     Win32(D, backends::win32::Win32Impl<D, W>, backends::win32::BufferImpl<'a, D, W>),
+     #[cfg(target_vendor = "apple")]
+     CoreGraphics(D, backends::cg::CGImpl<D, W>, backends::cg::BufferImpl<'a, D, W>),
+-    #[cfg(target_family = "wasm")]
++    #[cfg(all(target_family = "wasm", not(all(target_os = "wasi", target_vendor = "wasmer"))))]
+     Web(backends::web::WebDisplayImpl<D>, backends::web::WebImpl<D, W>, backends::web::BufferImpl<'a, D, W>),
++    #[cfg(all(target_os = "wasi", target_vendor = "wasmer"))]
++    Wasix(D, backends::wasix::WasixImpl<D, W>, backends::wasix::BufferImpl<'a, D, W>),
+     #[cfg(target_os = "redox")]
+     Orbital(D, backends::orbital::OrbitalImpl<D, W>, backends::orbital::BufferImpl<'a, D, W>),
+ }
+diff --git a/src/backends/mod.rs b/src/backends/mod.rs
+index 067ca90..9c7d6d6 100644
+--- a/src/backends/mod.rs
++++ b/src/backends/mod.rs
+@@ -18,6 +18,8 @@ pub(crate) mod cg;
+ pub(crate) mod kms;
+ #[cfg(target_os = "redox")]
+ pub(crate) mod orbital;
++#[cfg(all(target_os = "wasi", target_vendor = "wasmer"))]
++pub(crate) mod wasix;
+ #[cfg(all(
+     feature = "wayland",
+     not(any(
+@@ -29,7 +31,10 @@ pub(crate) mod orbital;
+     ))
+ ))]
+ pub(crate) mod wayland;
+-#[cfg(target_family = "wasm")]
++#[cfg(all(
++    target_family = "wasm",
++    not(all(target_os = "wasi", target_vendor = "wasmer"))
++))]
+ pub(crate) mod web;
+ #[cfg(target_os = "windows")]
+ pub(crate) mod win32;
+diff --git a/src/lib.rs b/src/lib.rs
+index 7923c3e..bc76d9b 100644
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -25,7 +25,10 @@ pub use error::SoftBufferError;
+ 
+ use raw_window_handle::{HasDisplayHandle, HasWindowHandle, RawDisplayHandle, RawWindowHandle};
+ 
+-#[cfg(target_family = "wasm")]
++#[cfg(all(
++    target_family = "wasm",
++    not(all(target_os = "wasi", target_vendor = "wasmer"))
++))]
+ pub use backends::web::SurfaceExtWeb;
+ 
+ /// An instance of this struct contains the platform-specific data that must be managed in order to
+@@ -350,7 +353,11 @@ fn display_handle_type_name(handle: &RawDisplayHandle) -> &'static str {
+     }
+ }
+ 
+-#[cfg(not(target_family = "wasm"))]
++// WASIX has threads, so the `Send`/`Sync` guarantees are checked there as well.
++#[cfg(any(
++    not(target_family = "wasm"),
++    all(target_os = "wasi", target_vendor = "wasmer")
++))]
+ fn __assert_send() {
+     fn is_send<T: Send>() {}
+     fn is_sync<T: Sync>() {}

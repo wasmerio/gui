@@ -1,0 +1,38 @@
+video driver wasmer
+display 1920x1080 density=1 scale=1 bounds=0,0 1920x1080
+window 640x480, 640x480 pixels, density=1 scale=1
+surface selector wgui: and 32 more
+renderer software, vsync on
+WINDOW_SHOWN
+WINDOW_PIXEL_SIZE_CHANGED 640x480
+WINDOW_EXPOSED
+drew 640x480
+WINDOW_FOCUS_GAINED
+KEY_DOWN F6 key=F6 mods=0
+read nothing ""
+KEY_UP F6 key=F6 mods=0
+KEY_DOWN F5 key=F5 mods=0
+copy: ok
+CLIPBOARD_UPDATE owner=1 types=1
+KEY_UP F5 key=F5 mods=0
+KEY_DOWN F6 key=F6 mods=0
+read text "copied by SDL"
+KEY_UP F6 key=F6 mods=0
+WINDOW_FOCUS_LOST
+CLIPBOARD_UPDATE owner=0 types=2
+WINDOW_FOCUS_GAINED
+KEY_DOWN F6 key=F6 mods=0
+read text ""
+KEY_UP F6 key=F6 mods=0
+KEY_DOWN Left Ctrl key=Left Ctrl mods=LCtrl
+KEY_DOWN V key=V mods=LCtrl
+pasted text "copied "elsewhere""
+KEY_UP V key=V mods=LCtrl
+KEY_UP Left Ctrl key=Left Ctrl mods=0
+KEY_DOWN F6 key=F6 mods=0
+read text ""
+KEY_UP F6 key=F6 mods=0
+WINDOW_CLOSE_REQUESTED
+QUIT
+quitting at 640x480 after 1 frames
+done

@@ -1,0 +1,12 @@
+{
+  "_comment": "winit on its WASIX backend: the program of this directory, what plays the user for it, and where what it should print is kept (expected/<name>.txt). `make test-winit` runs them; WGUI_BLESS=1 rewrites the expected output from what it prints now. A run that a signal ends says the status it should end with (`exit`).",
+  "runs": [
+    {"name": "basics", "program": "winit_events", "script": "basics"},
+    {"name": "requests", "program": "winit_events", "script": "requests"},
+    {"name": "text", "program": "winit_events", "script": "text"},
+    {"name": "touch", "program": "winit_events", "script": "touch"},
+    {"name": "scale", "program": "winit_events", "script": "scale"},
+    {"name": "interrupted", "program": "winit_events", "args": ["--interrupt-after", "300"], "exit": 130},
+    {"name": "interrupted_drawing", "program": "winit_events", "args": ["--interrupt-after", "300", "--animate", "60000"], "exit": 130}
+  ]
+}

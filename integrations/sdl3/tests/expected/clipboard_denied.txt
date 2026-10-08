@@ -1,0 +1,20 @@
+video driver wasmer
+display 1920x1080 density=1 scale=1 bounds=0,0 1920x1080
+window 640x480, 640x480 pixels, density=1 scale=1
+surface selector wgui: and 32 more
+renderer software, vsync on
+WINDOW_SHOWN
+WINDOW_PIXEL_SIZE_CHANGED 640x480
+WINDOW_EXPOSED
+drew 640x480
+WINDOW_FOCUS_GAINED
+CLIPBOARD_UPDATE owner=0 types=0
+KEY_DOWN Left Ctrl key=Left Ctrl mods=LCtrl
+KEY_DOWN V key=V mods=LCtrl
+pasted nothing ""
+KEY_UP V key=V mods=LCtrl
+KEY_UP Left Ctrl key=Left Ctrl mods=0
+WINDOW_CLOSE_REQUESTED
+QUIT
+quitting at 640x480 after 1 frames
+done

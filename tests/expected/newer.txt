@@ -1,0 +1,3 @@
+a function this host does not have: Unimplemented
+and one that returns nothing: returned
+done

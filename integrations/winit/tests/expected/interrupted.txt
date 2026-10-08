@@ -1,0 +1,6 @@
+resumed
+monitor "Headless" 1920x1080 scale 1 at 60000 mHz, primary
+window 640x480 scale 1 theme Some(Light), surface selector wgui: and 32 more
+Resized 640x480
+RedrawRequested: drew 640x480
+interrupting

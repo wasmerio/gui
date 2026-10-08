@@ -1,0 +1,102 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 90b368d..a3048f4 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -148,13 +148,13 @@ endif()
+ #  for the time being. This default will change to ON once this becomes
+ #  commonly supported in browsers or the Emscripten team makes a single
+ #  binary work everywhere.
+-if (UNIX_OR_MAC_SYS AND NOT EMSCRIPTEN)
++if ((UNIX_OR_MAC_SYS AND NOT EMSCRIPTEN) OR WASI)
+   set(SDL_PTHREADS_DEFAULT ON)
+ else()
+   set(SDL_PTHREADS_DEFAULT OFF)
+ endif()
+ 
+-if(UNIX_SYS OR ANDROID)
++if(UNIX_SYS OR ANDROID OR WASI)
+   set(SDL_CLOCK_GETTIME_DEFAULT ON)
+ else()
+   set(SDL_CLOCK_GETTIME_DEFAULT OFF)
+@@ -207,7 +207,7 @@ if(EMSCRIPTEN)
+   set(SDL_SHARED_AVAILABLE OFF)
+ endif()
+ 
+-if(VITA OR PSP OR PS2 OR N3DS OR RISCOS OR NGAGE)
++if(VITA OR PSP OR PS2 OR N3DS OR RISCOS OR NGAGE OR WASI)
+   set(SDL_SHARED_AVAILABLE OFF)
+ endif()
+ 
+@@ -1771,6 +1771,42 @@ elseif(EMSCRIPTEN)
+   CheckPTHREAD()
+   CheckLibUnwind()
+ 
++elseif(WASI)
++  # WASI / WASIX (wasix-libc): a POSIX-like libc with pthreads, clocks and
++  # files, but no window system, no audio devices and (in a static module)
++  # no dlopen(). Everything not set here falls back to the dummy backends
++  # further down.
++
++  # SDL_dynapi needs dlopen() or LoadLibrary(); this turns SDL_DYNAMIC_API off
++  # (see the DYNAPI_NEEDS_DLOPEN test in src/dynapi/SDL_dynapi.h).
++  set(DYNAPI_NEEDS_DLOPEN 1)
++
++  CheckO_CLOEXEC()
++  CheckPTHREAD()
++
++  if(SDL_CLOCK_GETTIME)
++    check_symbol_exists(clock_gettime "time.h" HAVE_CLOCK_GETTIME)
++  endif()
++
++  set(SDL_FILESYSTEM_UNIX 1)
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/filesystem/unix/*.c")
++  set(HAVE_SDL_FILESYSTEM TRUE)
++
++  set(SDL_FSOPS_POSIX 1)
++  sdl_sources("${SDL3_SOURCE_DIR}/src/filesystem/posix/SDL_sysfsops.c")
++  set(HAVE_SDL_FSOPS TRUE)
++
++  set(SDL_TIME_UNIX 1)
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/time/unix/*.c")
++  set(HAVE_SDL_TIME TRUE)
++
++  set(SDL_TIMER_UNIX 1)
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/timer/unix/*.c")
++  set(HAVE_SDL_TIMERS TRUE)
++
++  sdl_glob_sources("${SDL3_SOURCE_DIR}/src/locale/unix/*.c")
++  set(HAVE_SDL_LOCALE TRUE)
++
+ elseif(UNIX AND NOT APPLE AND NOT RISCOS AND NOT HAIKU)
+ 
+   set(SDL_DISABLE_DLOPEN_NOTES TRUE)
+diff --git a/cmake/sdlplatform.cmake b/cmake/sdlplatform.cmake
+index f16fe3f..89b108e 100644
+--- a/cmake/sdlplatform.cmake
++++ b/cmake/sdlplatform.cmake
+@@ -59,6 +59,9 @@ function(SDL_DetectCMakePlatform)
+     set(sdl_cmake_platform Android)
+   elseif(CMAKE_SYSTEM_NAME MATCHES "Emscripten.*")
+     set(sdl_cmake_platform Emscripten)
++  elseif(CMAKE_SYSTEM_NAME MATCHES "WASI.*")
++    # WASI and WASIX (wasixcc, wasi-sdk): sets WASI=TRUE
++    set(sdl_cmake_platform WASI)
+   elseif(CMAKE_SYSTEM_NAME MATCHES "QNX.*")
+     set(sdl_cmake_platform QNX)
+   elseif(CMAKE_SYSTEM_NAME MATCHES "BeOS.*")
+diff --git a/src/thread/pthread/SDL_systhread.c b/src/thread/pthread/SDL_systhread.c
+index f4d4c4d..c282653 100644
+--- a/src/thread/pthread/SDL_systhread.c
++++ b/src/thread/pthread/SDL_systhread.c
+@@ -187,8 +187,10 @@ SDL_ThreadID SDL_GetCurrentThreadID(void)
+ 
+ bool SDL_SYS_SetThreadPriority(SDL_ThreadPriority priority)
+ {
+-#ifdef SDL_PLATFORM_RISCOS
++#if defined(SDL_PLATFORM_RISCOS) || defined(__wasi__)
+     // FIXME: Setting thread priority does not seem to be supported
++    // (wasi-libc/wasix-libc do not declare the sched_* / pthread_*schedparam API:
++    //  "WASI has no CPU scheduling support")
+     return true;
+ #else
+     struct sched_param sched;

@@ -1,0 +1,4 @@
+resized to 320x240 by the other thread
+woken by the other thread
+a wake waits for the next wait
+done

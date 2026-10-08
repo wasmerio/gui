@@ -1,0 +1,40 @@
+resumed
+monitor "Headless" 1920x1080 scale 1 at 60000 mHz, primary
+window 640x480 scale 1 theme Some(Light), surface selector wgui: and 32 more
+Resized 640x480
+RedrawRequested: drew 640x480
+Focused true
+KeyboardInput Pressed KeyA key="a" unmodified="a" text=Some("a") all=Some("a") Standard
+KeyboardInput Released KeyA key="a" unmodified="a" text=None all=None Standard
+KeyboardInput Pressed F4 key=F4 unmodified=F4 text=None all=None Standard
+input methods on
+Ime Enabled
+KeyboardInput Released F4 key=F4 unmodified=F4 text=None all=None Standard
+KeyboardInput Pressed KeyH key="h" unmodified="h" text=Some("h") all=Some("h") Standard
+KeyboardInput Released KeyH key="h" unmodified="h" text=None all=None Standard
+KeyboardInput Pressed KeyI key="i" unmodified="i" text=Some("i") all=Some("i") Standard
+KeyboardInput Released KeyI key="i" unmodified="i" text=None all=None Standard
+KeyboardInput Pressed Enter key=Enter unmodified=Enter text=Some("\r") all=Some("\r") Standard
+KeyboardInput Released Enter key=Enter unmodified=Enter text=None all=None Standard
+KeyboardInput Pressed KeyN key=Process unmodified=Process text=None all=None Standard
+Ime Preedit "に" Some((3, 3))
+KeyboardInput Released KeyN key=Process unmodified=Process text=None all=None Standard
+Ime Preedit "にほん" Some((3, 9))
+Ime Preedit "日本" None
+Ime Preedit "" None
+Ime Commit "日本"
+KeyboardInput Pressed Backquote key=Dead(Some('\u{300}')) unmodified=Dead(Some('\u{300}')) text=None all=None Standard
+KeyboardInput Released Backquote key=Dead(Some('\u{300}')) unmodified=Dead(Some('\u{300}')) text=None all=None Standard
+KeyboardInput Pressed KeyE key="è" unmodified="e" text=Some("è") all=Some("è") Standard
+KeyboardInput Released KeyE key="è" unmodified="e" text=None all=None Standard
+KeyboardInput Pressed Space key=Space unmodified=Space text=Some(" ") all=Some(" ") Standard
+KeyboardInput Released Space key=Space unmodified=Space text=None all=None Standard
+KeyboardInput Pressed F4 key=F4 unmodified=F4 text=None all=None Standard
+input methods off
+Ime Disabled
+KeyboardInput Released F4 key=F4 unmodified=F4 text=None all=None Standard
+KeyboardInput Pressed KeyZ key="z" unmodified="z" text=Some("z") all=Some("z") Standard
+KeyboardInput Released KeyZ key="z" unmodified="z" text=None all=None Standard
+CloseRequested
+exiting at 640x480 after 1 frames
+done

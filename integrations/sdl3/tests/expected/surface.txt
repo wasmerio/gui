@@ -1,0 +1,31 @@
+video driver wasmer
+display 1920x1080 density=1 scale=1 bounds=0,0 1920x1080
+window 640x480, 640x480 pixels, density=1 scale=1
+surface selector wgui: and 32 more
+WINDOW_SHOWN
+WINDOW_PIXEL_SIZE_CHANGED 640x480
+WINDOW_EXPOSED
+drew 640x480 on the surface
+WINDOW_FOCUS_GAINED
+KEY_DOWN Left Shift key=Left Shift mods=LShift
+KEY_DOWN A key=A mods=LShift
+KEY_DOWN A key=A mods=LShift repeat
+KEY_UP A key=A mods=LShift
+KEY_UP Left Shift key=Left Shift mods=0
+WINDOW_MOUSE_ENTER
+MOUSE_MOTION at=10,10 rel=0,0 buttons=0x0
+MOUSE_MOTION at=20,15 rel=10,5 buttons=0x0
+MOUSE_BUTTON_DOWN button=1 clicks=1 at=20,15
+MOUSE_MOTION at=25,15 rel=5,0 buttons=0x1
+MOUSE_BUTTON_UP button=1 clicks=1 at=25,15
+MOUSE_WHEEL 0,-1 at=25,15
+WINDOW_RESIZED 1024x768
+WINDOW_PIXEL_SIZE_CHANGED 1024x768
+WINDOW_SAFE_AREA_CHANGED
+WINDOW_EXPOSED
+drew 1024x768 on the surface
+WINDOW_FOCUS_LOST
+WINDOW_CLOSE_REQUESTED
+QUIT
+quitting at 1024x768 after 2 frames
+done
