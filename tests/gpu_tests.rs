@@ -95,7 +95,12 @@ fn frames_arrive_at_the_window_they_were_drawn_on() {
         [0, 0, 255, 255]
     };
     assert!(
-        frame.pixels.chunks_exact(4).all(|pixel| pixel == blue),
+        frame
+            .pixels
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .all(|pixel| *pixel == blue),
         "the last frame is not all blue: it starts with {:?}",
         &frame.pixels[..8]
     );

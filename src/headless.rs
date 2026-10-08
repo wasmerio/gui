@@ -262,7 +262,7 @@ impl PresentedFrame {
         for line in self.pixels.chunks_exact(row) {
             data.push(0);
             if self.bgra {
-                for pixel in line.chunks_exact(4) {
+                for pixel in line.as_chunks::<4>().0 {
                     data.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
                 }
             } else {

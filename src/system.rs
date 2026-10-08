@@ -164,17 +164,16 @@ impl PixelFrame {
         };
         let swap = self.format == PixelFormat::Bgra8;
         for (y, line) in out.chunks_exact_mut(row.max(1)).enumerate() {
-            for (to, from) in line
-                .chunks_exact_mut(4)
-                .zip(self.row(y as u32).chunks_exact(4))
-            {
-                let pixel = u32::from_le_bytes([from[0], from[1], from[2], from[3]]);
+            let (to, _) = line.as_chunks_mut::<4>();
+            let (from, _) = self.row(y as u32).as_chunks::<4>();
+            for (to, from) in to.iter_mut().zip(from) {
+                let pixel = u32::from_le_bytes(*from);
                 let pixel = if swap {
                     (pixel & 0xFF00_FF00) | ((pixel >> 16) & 0xFF) | ((pixel & 0xFF) << 16)
                 } else {
                     pixel
                 };
-                to.copy_from_slice(&(pixel | opaque).to_le_bytes());
+                *to = (pixel | opaque).to_le_bytes();
             }
         }
         out

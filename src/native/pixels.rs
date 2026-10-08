@@ -114,7 +114,7 @@ fn fill(out: &mut [u32], width: u32, height: u32, frame: &PixelFrame) {
         };
         let source = frame.row(from);
         if same {
-            for (out, bytes) in row.iter_mut().zip(source.chunks_exact(4)) {
+            for (out, bytes) in row.iter_mut().zip(source.as_chunks::<4>().0) {
                 *out = pixel(bytes);
             }
         } else {
