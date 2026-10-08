@@ -57,13 +57,15 @@ int main(void) {
     CHECK(pthread_join(thread, NULL) == 0);
     printf("woken by the other thread\n");
 
-    // A wake with nobody waiting ends the next wait, once.
+    // A wake with nobody waiting ends the next wait, once. A window system
+    // may have something to tell at the same moment (X11 has, after a
+    // resize), so only the wake is looked at.
     OK(wguiInstanceWake(instance));
     WGUIWaitReasons reasons = 0;
     OK(wguiInstanceWaitEvents(instance, WGUI_WAIT_FOREVER, &reasons));
-    CHECK(reasons == WGUIWaitReasons_Woken);
+    CHECK(reasons & WGUIWaitReasons_Woken);
     OK(wguiInstanceWaitEvents(instance, 0, &reasons));
-    CHECK(reasons == 0);
+    CHECK(!(reasons & WGUIWaitReasons_Woken));
     printf("a wake waits for the next wait\n");
 
     wguiInstanceDestroy(instance);

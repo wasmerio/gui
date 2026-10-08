@@ -37,6 +37,11 @@ struct Entry {
     /// The modifiers last reported for the window.
     modifiers: u32,
     focused: bool,
+    /// Whether the guest has the window shown. That is what it is told, not
+    /// what the window system says at the moment: X11 puts a window on
+    /// screen when it gets to it, which is after the window was made, and
+    /// whether anything of a window can be seen is another flag.
+    shown: bool,
     /// What the guest wants of the cursor, and whether it has it right now.
     grab: CursorGrab,
     grabbed: bool,
@@ -77,7 +82,7 @@ impl Entry {
                 flags |= flag;
             }
         };
-        set(window.is_visible().unwrap_or(true), window_flags::VISIBLE);
+        set(self.shown, window_flags::VISIBLE);
         set(window.is_resizable(), window_flags::RESIZABLE);
         set(window.is_decorated(), window_flags::DECORATED);
         set(
@@ -323,6 +328,7 @@ impl App {
             cursor: (0.0, 0.0),
             modifiers: 0,
             focused: false,
+            shown: flag(window_flags::VISIBLE),
             grab: CursorGrab::None,
             grabbed: false,
             cursor_visible: true,
@@ -400,6 +406,7 @@ impl App {
             WindowChange::Flags { mask, values } => {
                 let asked = |flag: u64| (mask & flag != 0).then_some(values & flag != 0);
                 if let Some(visible) = asked(window_flags::VISIBLE) {
+                    entry.shown = visible;
                     window.set_visible(visible);
                 }
                 if let Some(resizable) = asked(window_flags::RESIZABLE) {

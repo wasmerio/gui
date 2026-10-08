@@ -46,6 +46,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
+          # The browser half of the crate is linted as the SDK compiles it.
+          targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui
@@ -142,8 +144,11 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui
-      - name: Install what SDL is built with
-        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build
+      # Without lld the build scripts of the winit build do not link on the
+      # runner: gcc is asked for a linker that is not there (`cannot find
+      # 'ld'`).
+      - name: Install what SDL is built with, and a linker for build scripts
+        run: sudo apt-get update && sudo apt-get install -y cmake ninja-build lld
       - name: Install wasixcc
         uses: wasix-org/wasixcc@v0.4.3
         with:
