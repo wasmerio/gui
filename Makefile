@@ -16,7 +16,7 @@ OUT := tests/programs/out
 PROGRAMS := $(patsubst tests/programs/%.c,$(OUT)/%.wasm,$(wildcard tests/programs/*.c)) $(OUT)/link_all.wasm
 EXAMPLES := $(patsubst examples/%.c,examples/out/%.wasm,$(wildcard examples/*.c))
 
-.PHONY: all gen check check-header check-winit check-web check-sys fmt lint programs gpu-programs examples test test-gpu test-windows test-page sdl sdl-programs test-sdl imgui-demo test-imgui winit-programs test-winit clean
+.PHONY: all gen check check-header check-winit check-web check-sys fmt lint programs gpu-programs examples test test-loom test-gpu test-windows test-page sdl sdl-programs test-sdl imgui-demo test-imgui winit-programs test-winit clean
 
 all: programs examples
 
@@ -103,6 +103,12 @@ $(WEBGPU)/lib/wasm32-wasix/libwebgpu.a:
 ## Unit tests, the ABI sweep and the test programs on the headless host.
 test: programs
 	$(CARGO) test --features cli
+
+## The handshake between waiting and waking (src/host/wait.rs) under loom,
+## in every interleaving and with every store each load may read. The first
+## run builds the dependencies again, with `--cfg loom`.
+test-loom:
+	RUSTFLAGS="--cfg loom" $(CARGO) test --release --lib -- wait::model
 
 ## Windows drawn on with WebGPU, on the headless host. Needs a GPU adapter;
 ## WEBGPU_TEST_FALLBACK_ADAPTER=1 asks for a software one.
