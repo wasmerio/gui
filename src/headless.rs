@@ -180,6 +180,13 @@ impl Inner {
     }
 
     fn tick(system: Weak<Inner>) {
+        // macOS can wake a thread that sleeps milliseconds late: there a
+        // strict timer ends the waits for the display.
+        #[cfg(target_os = "macos")]
+        let timer = crate::macos_deadline::Deadline::new({
+            let thread = std::thread::current();
+            move || thread.unpark()
+        });
         loop {
             let Some(inner) = system.upgrade() else {
                 return;
@@ -201,8 +208,19 @@ impl Inner {
             }
             let interval = inner.frame_interval();
             let elapsed = inner.started.elapsed().as_nanos() as u64;
+            let delay = Duration::from_nanos(interval - elapsed % interval);
+            // The refresh, on the system's clock.
+            #[cfg(target_os = "macos")]
+            let refresh = inner.started + Duration::from_nanos(elapsed) + delay;
             drop(inner);
-            std::thread::sleep(Duration::from_nanos(interval - elapsed % interval));
+            #[cfg(target_os = "macos")]
+            if let Some(timer) = &timer {
+                timer.wait_until(refresh);
+            } else {
+                std::thread::sleep(refresh.saturating_duration_since(Instant::now()));
+            }
+            #[cfg(not(target_os = "macos"))]
+            std::thread::sleep(delay);
             if let Some(inner) = system.upgrade() {
                 inner.refresh();
             }
