@@ -57,16 +57,35 @@ pub(crate) fn wait_step(
         // Another thread destroyed the instance under this one.
         return WaitStep::Done(Ok(wait_reasons::INTERRUPTED));
     }
+    let (wait_slice, interrupt_after) = slice_and_interrupt();
     let waited = crate::clock::now().saturating_sub(started);
     let left = match limit {
         Some(limit) if waited >= limit => return WaitStep::Done(Ok(0)),
         Some(limit) => limit - waited,
         None => Duration::MAX,
     };
-    if waited >= INTERRUPT_AFTER {
+    if waited >= interrupt_after {
         return WaitStep::Done(Ok(wait_reasons::INTERRUPTED));
     }
-    WaitStep::Sleep(WAIT_SLICE.min(left).min(INTERRUPT_AFTER - waited))
+    WaitStep::Sleep(wait_slice.min(left).min(interrupt_after - waited))
+}
+
+#[cfg(test)]
+thread_local! {
+    /// What `WAIT_SLICE` and `INTERRUPT_AFTER` are stretched to for the waits
+    /// of a test's thread: such a wait ends soon only if something unparks
+    /// it, not because it came round to look again.
+    pub(super) static STRETCHED_WAIT: std::cell::Cell<Option<Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// `WAIT_SLICE` and `INTERRUPT_AFTER`, unless a test stretched them.
+fn slice_and_interrupt() -> (Duration, Duration) {
+    #[cfg(test)]
+    if let Some(stretched) = STRETCHED_WAIT.get() {
+        return (stretched, stretched);
+    }
+    (WAIT_SLICE, INTERRUPT_AFTER)
 }
 
 impl InstanceApi for Host {

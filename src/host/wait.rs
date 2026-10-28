@@ -116,8 +116,28 @@ impl WaitSet {
         if ready() {
             return;
         }
+        #[cfg(test)]
+        parking();
         std::thread::park_timeout(slice);
     }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Told each time `park` on this thread is done looking and parks: a test
+    /// that wakes the thread then knows that only an unpark can end the park.
+    pub(crate) static PARKING: std::cell::RefCell<Option<std::sync::mpsc::Sender<()>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+#[cfg(test)]
+fn parking() {
+    PARKING.with_borrow(|parking| {
+        if let Some(parking) = parking {
+            // The test may have stopped listening.
+            let _ = parking.send(());
+        }
+    });
 }
 
 #[cfg(test)]
