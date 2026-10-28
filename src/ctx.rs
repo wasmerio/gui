@@ -196,6 +196,13 @@ impl CtxInner {
         scopes.retain(|scope| scope.strong_count() > 0);
         scopes.iter().filter_map(Weak::upgrade).collect()
     }
+
+    /// Ends the current event wait of every guest, or its next one.
+    fn wake_all(&self) {
+        for scope in self.live_scopes() {
+            scope.wake();
+        }
+    }
 }
 
 impl std::fmt::Debug for CtxInner {
@@ -223,6 +230,28 @@ impl Default for GuiCtx {
 impl GuiCtx {
     pub fn builder() -> GuiCtxBuilder {
         GuiCtxBuilder::default()
+    }
+
+    /// A closure that ends the event wait of every guest of this context, as
+    /// [`GuiRuntimeControl::wake_all`] does: for work that completes outside
+    /// the window system, such as a WebGPU event (`wasmer_webgpu`'s
+    /// `WebGpuCtxBuilder::event_waker`), so that a guest waiting for input
+    /// looks at it now rather than when its wait ends.
+    ///
+    /// Every guest of the context is woken, whoever the work is for: a guest
+    /// that has nothing else to look at finds nothing and waits again.
+    ///
+    /// It may be called from any thread. It runs no guest code and no method
+    /// of a store, and takes the context's locks only for a moment. It holds
+    /// only a weak reference to the context: work that outlives the context
+    /// can't keep it alive, and calling it then does nothing.
+    pub fn event_waker(&self) -> Arc<dyn Fn() + Send + Sync> {
+        let context = Arc::downgrade(&self.inner);
+        Arc::new(move || {
+            if let Some(context) = context.upgrade() {
+                context.wake_all();
+            }
+        })
     }
 
     pub fn limits(&self) -> &GuiLimits {
@@ -274,7 +303,7 @@ impl GuiCtx {
         usage
     }
 
-    /// A handle for stopping every guest of this context.
+    /// A handle for stopping or waking every guest of this context.
     pub fn runtime_control(&self) -> GuiRuntimeControl {
         GuiRuntimeControl {
             inner: Arc::clone(&self.inner),
@@ -282,13 +311,22 @@ impl GuiCtx {
     }
 }
 
-/// Stops the GUI work of every guest of a context.
+/// Stops, or wakes, the GUI work of every guest of a context.
 #[derive(Clone, Debug)]
 pub struct GuiRuntimeControl {
     inner: Arc<CtxInner>,
 }
 
 impl GuiRuntimeControl {
+    /// Ends the event wait of every guest of the context, as
+    /// `wguiInstanceWake` does: the wait returns with
+    /// `WGUIWaitReasons_Woken`, or the next one does if a guest isn't
+    /// waiting. No input is made up and no scope is closed. It may be called
+    /// from any thread.
+    pub fn wake_all(&self) {
+        self.inner.wake_all();
+    }
+
     /// Closes every scope, and every scope made later: guests waiting for
     /// input are woken and their windows go away. Sticky.
     pub fn terminate_all(&self) {
@@ -791,6 +829,16 @@ mod tests {
             .call(&mut store, &[])
             .expect_err("a stopped guest traps");
         assert!(error.to_string().contains("stopped"), "{error}");
+    }
+
+    #[test]
+    fn external_waker_does_not_retain_a_retired_context() {
+        let ctx = GuiCtx::default();
+        let weak = Arc::downgrade(&ctx.inner);
+        let wake = ctx.event_waker();
+        drop(ctx);
+        assert!(weak.upgrade().is_none());
+        wake(); // A late backend completion is harmless.
     }
 
     #[test]

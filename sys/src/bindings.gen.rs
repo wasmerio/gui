@@ -792,7 +792,8 @@ pub type WGUIWaitReasons = u32;
 pub const WGUIWaitReasons_None: WGUIWaitReasons = 0x00000000;
 /// The queue has records.
 pub const WGUIWaitReasons_Events: WGUIWaitReasons = 0x00000001;
-/// wguiInstanceWake was called.
+/// The instance was woken: wguiInstanceWake was called, or the host has other work for the
+/// program (a WebGPU event, say). Look at what else the program waits for.
 pub const WGUIWaitReasons_Woken: WGUIWaitReasons = 0x00000002;
 /// The host ended the wait so that the system can reach the thread. Nothing happened; wait
 /// again.
@@ -2085,15 +2086,16 @@ extern "C" {
     /// it in this call.
     pub fn wguiInstancePollEvents(instance: WGUIInstance, buffer: *mut core::ffi::c_void, capacity: usize, written: *mut usize) -> WGUIStatus;
 
-    /// Blocks until the queue has a record, wguiInstanceWake is called, or `timeout`
-    /// nanoseconds pass (0 only checks; WGUI_WAIT_FOREVER never times out). `reasons` says why
-    /// it returned; 0 is a timeout.
+    /// Blocks until the queue has a record, the instance is woken, or `timeout` nanoseconds
+    /// pass (0 only checks; WGUI_WAIT_FOREVER never times out). `reasons` says why it returned;
+    /// 0 is a timeout.
     ///
-    /// A wake that happened before the wait is not lost: it ends the next wait. Signals reach
-    /// the program as this call returns, not while it sleeps in it (see
-    /// wguiInstancePollEvents). So that they are not kept waiting, the host ends a long wait
-    /// early with WGUIWaitReasons_Interrupted: unless a signal handler did something, nothing
-    /// happened, and the program waits again.
+    /// The instance is woken by wguiInstanceWake, or by the host when it has other work for the
+    /// program, such as a WebGPU event that became ready. A wake that happened before the wait
+    /// is not lost: it ends the next wait. Signals reach the program as this call returns, not
+    /// while it sleeps in it (see wguiInstancePollEvents). So that they are not kept waiting,
+    /// the host ends a long wait early with WGUIWaitReasons_Interrupted: unless a signal
+    /// handler did something, nothing happened, and the program waits again.
     ///
     /// May block.
     pub fn wguiInstanceWaitEvents(instance: WGUIInstance, timeout: u64, reasons: *mut WGUIWaitReasons) -> WGUIStatus;

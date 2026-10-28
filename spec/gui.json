@@ -56,7 +56,7 @@
         },
         {
           "name": "wait_events",
-          "doc": "Blocks until the queue has a record, wguiInstanceWake is called, or `timeout` nanoseconds pass (0 only checks; WGUI_WAIT_FOREVER never times out). `reasons` says why it returned; 0 is a timeout.\n\nA wake that happened before the wait is not lost: it ends the next wait. Signals reach the program as this call returns, not while it sleeps in it (see wguiInstancePollEvents). So that they are not kept waiting, the host ends a long wait early with WGUIWaitReasons_Interrupted: unless a signal handler did something, nothing happened, and the program waits again.",
+          "doc": "Blocks until the queue has a record, the instance is woken, or `timeout` nanoseconds pass (0 only checks; WGUI_WAIT_FOREVER never times out). `reasons` says why it returned; 0 is a timeout.\n\nThe instance is woken by wguiInstanceWake, or by the host when it has other work for the program, such as a WebGPU event that became ready. A wake that happened before the wait is not lost: it ends the next wait. Signals reach the program as this call returns, not while it sleeps in it (see wguiInstancePollEvents). So that they are not kept waiting, the host ends a long wait early with WGUIWaitReasons_Interrupted: unless a signal handler did something, nothing happened, and the program waits again.",
           "blocking": true,
           "signals": true,
           "returns": "status",
@@ -748,7 +748,7 @@
       "entries": [
         { "name": "none", "doc": "" },
         { "name": "events", "doc": "The queue has records." },
-        { "name": "woken", "doc": "wguiInstanceWake was called." },
+        { "name": "woken", "doc": "The instance was woken: wguiInstanceWake was called, or the host has other work for the program (a WebGPU event, say). Look at what else the program waits for." },
         { "name": "interrupted", "doc": "The host ended the wait so that the system can reach the thread. Nothing happened; wait again." }
       ]
     },

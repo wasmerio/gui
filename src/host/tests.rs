@@ -1856,3 +1856,90 @@ fn a_kill_shows_on_the_guest_s_memory() {
     shared.disable_atomics().expect("supported");
     assert!(super::killed(&probe));
 }
+
+#[test]
+fn external_wake_is_sticky_for_live_scopes_without_synthetic_input() {
+    use crate::abi::structs::InstanceDescriptor;
+    let ctx = GuiCtx::default();
+    let scopes = [ctx.scope(), ctx.scope()];
+    let instances: Vec<_> = scopes
+        .iter()
+        .map(|scope| {
+            let handle = scope
+                .host()
+                .open_instance(&InstanceDescriptor {
+                    abi_version: crate::abi::enums::ABI_VERSION,
+                    ..Default::default()
+                })
+                .expect("instance opens");
+            scope.host().instance(handle).expect("instance lives")
+        })
+        .collect();
+    let unrelated = GuiCtx::default();
+    let foreign = unrelated.scope();
+    let handle = foreign
+        .host()
+        .open_instance(&InstanceDescriptor {
+            abi_version: crate::abi::enums::ABI_VERSION,
+            ..Default::default()
+        })
+        .expect("foreign instance opens");
+    let foreign_instance = foreign.host().instance(handle).expect("foreign lives");
+    let wake = ctx.event_waker();
+    std::thread::spawn(move || wake())
+        .join()
+        .expect("producer finishes");
+    for instance in &instances {
+        assert!(
+            instance.shared.wait.take_wake(),
+            "a wake before the wait is kept"
+        );
+        assert!(!instance.shared.wait.take_wake(), "wake is consumed once");
+        assert!(
+            !instance.shared.has_events(),
+            "wake did not fabricate input"
+        );
+    }
+    assert!(
+        !foreign_instance.shared.wait.take_wake(),
+        "different contexts remain isolated"
+    );
+    assert!(scopes.iter().all(|scope| !scope.is_closed()));
+    // A closed scope has no instances left to wake.
+    scopes[0].close();
+    ctx.runtime_control().wake_all();
+    assert!(
+        !instances[0].shared.wait.take_wake(),
+        "closed instance is ignored"
+    );
+    assert!(
+        instances[1].shared.wait.take_wake(),
+        "remaining scope still wakes"
+    );
+}
+
+#[test]
+fn an_external_wake_ends_a_wait_at_once() {
+    let rig = Rig::new();
+    let ctx = GuiCtx {
+        inner: Arc::clone(&rig.host().ctx),
+    };
+    let wake = ctx.event_waker();
+    let producer = std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(40));
+        wake();
+    });
+    let started = std::time::Instant::now();
+    rig.call(|host, cx| {
+        host.instance_wait_events(cx, rig.instance, WAIT_FOREVER, OutPtr::new(SIZE))
+    })
+    .expect("no fault");
+    let took = started.elapsed();
+    assert_eq!(rig.read_u32(SIZE), wait_reasons::WOKEN, "took {took:?}");
+    // Long before the host would have ended the wait itself (Interrupted).
+    assert!(
+        took < std::time::Duration::from_millis(240),
+        "took {took:?}"
+    );
+    producer.join().expect("joins");
+}
