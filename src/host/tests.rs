@@ -1920,26 +1920,44 @@ fn external_wake_is_sticky_for_live_scopes_without_synthetic_input() {
 
 #[test]
 fn an_external_wake_ends_a_wait_at_once() {
-    let rig = Rig::new();
-    let ctx = GuiCtx {
-        inner: Arc::clone(&rig.host().ctx),
-    };
-    let wake = ctx.event_waker();
-    let producer = std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(40));
-        wake();
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (setup, set_up) = mpsc::channel();
+    let (parking, parked) = mpsc::channel();
+    let (done, completion) = mpsc::channel();
+    let guest = std::thread::spawn(move || {
+        // The rig stays on this thread. The test gets the waker, and what
+        // releases a regressed host.
+        let rig = Rig::new();
+        let wake = GuiCtx {
+            inner: Arc::clone(&rig.host().ctx),
+        }
+        .event_waker();
+        setup.send((wake, rig.shared())).expect("the test listens");
+        // Each park of this wait lasts a minute rather than WAIT_SLICE, and
+        // the host doesn't interrupt the wait before then either: if the wake
+        // doesn't unpark the guest, the guest doesn't come round to see it.
+        super::instance::STRETCHED_WAIT.set(Some(Duration::from_secs(60)));
+        super::wait::PARKING.set(Some(parking));
+        let status = rig.call(|host, cx| {
+            host.instance_wait_events(cx, rig.instance, WAIT_FOREVER, OutPtr::new(SIZE))
+        });
+        done.send((status, rig.read_u32(SIZE)))
+            .expect("completion receiver");
     });
-    let started = std::time::Instant::now();
-    rig.call(|host, cx| {
-        host.instance_wait_events(cx, rig.instance, WAIT_FOREVER, OutPtr::new(SIZE))
-    })
-    .expect("no fault");
-    let took = started.elapsed();
-    assert_eq!(rig.read_u32(SIZE), wait_reasons::WOKEN, "took {took:?}");
-    // Long before the host would have ended the wait itself (Interrupted).
-    assert!(
-        took < std::time::Duration::from_millis(240),
-        "took {took:?}"
+    let (wake, shared) = set_up.recv().expect("the guest sets up");
+    // Woken once it is done looking, when only an unpark ends its park.
+    parked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the guest parks");
+    wake();
+    let outcome = completion.recv_timeout(Duration::from_secs(5));
+    // Release a regressed host without waiting out its park.
+    shared.wait.notify();
+    guest.join().expect("joins");
+    assert_eq!(
+        outcome,
+        Ok((Ok(Status::Success), wait_reasons::WOKEN)),
+        "the wake left the guest parked"
     );
-    producer.join().expect("joins");
 }

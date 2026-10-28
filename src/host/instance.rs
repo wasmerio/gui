@@ -20,6 +20,24 @@ const INTERRUPT_AFTER: Duration = Duration::from_millis(250);
 /// The largest edge of a custom cursor when the window system names none.
 const MAX_CURSOR_EDGE: u32 = 512;
 
+#[cfg(test)]
+thread_local! {
+    /// What `WAIT_SLICE` and `INTERRUPT_AFTER` are stretched to for the waits
+    /// of a test's thread: such a wait ends soon only if something unparks
+    /// it, not because it came round to look again.
+    pub(super) static STRETCHED_WAIT: std::cell::Cell<Option<Duration>> =
+        const { std::cell::Cell::new(None) };
+}
+
+/// `WAIT_SLICE` and `INTERRUPT_AFTER`, unless a test stretched them.
+fn slice_and_interrupt() -> (Duration, Duration) {
+    #[cfg(test)]
+    if let Some(stretched) = STRETCHED_WAIT.get() {
+        return (stretched, stretched);
+    }
+    (WAIT_SLICE, INTERRUPT_AFTER)
+}
+
 impl InstanceApi for Host {
     fn instance_destroy(&self, cx: &mut Cx<'_>, instance: Handle) {
         cx.owned.retain(|owned| *owned != instance);
@@ -90,6 +108,7 @@ impl InstanceApi for Host {
         let shared = &instance.shared;
         let limit = (timeout != WAIT_FOREVER).then(|| Duration::from_nanos(timeout));
         let started = crate::clock::now();
+        let (wait_slice, interrupt_after) = slice_and_interrupt();
         shared.waiting.fetch_add(1, Ordering::AcqRel);
         let outcome = loop {
             let mut why = 0;
@@ -115,10 +134,10 @@ impl InstanceApi for Host {
                 Some(limit) => limit - waited,
                 None => Duration::MAX,
             };
-            if waited >= INTERRUPT_AFTER {
+            if waited >= interrupt_after {
                 break Ok(wait_reasons::INTERRUPTED);
             }
-            let slice = WAIT_SLICE.min(left).min(INTERRUPT_AFTER - waited);
+            let slice = wait_slice.min(left).min(interrupt_after - waited);
             shared.wait.park(slice, || shared.has_events());
         };
         shared.waiting.fetch_sub(1, Ordering::AcqRel);
