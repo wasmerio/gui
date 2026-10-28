@@ -1,6 +1,6 @@
 [package]
 name = "wasmer-gui"
-version = "0.704.0"
+version = "0.705.0"
 description = "Windows, input, text entry and the clipboard for WASIX guests running on the Wasmer WebAssembly runtime"
 edition = "2024"
 license = "MIT"
@@ -60,21 +60,21 @@ crossbeam-queue = "0.3"
 # patches these to its path crates, the SDK and this repository's standalone
 # builds patch them to one pinned Wasmer revision (see `[patch.crates-io]`
 # below).
-wasmer = { version = "7.4", default-features = false }
+wasmer = { version = "7.5", default-features = false }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-wasmer = { version = "7.4", default-features = false, features = ["sys-default"] }
-wasmer-wasix = { version = "0.704", default-features = false, features = ["sys"], optional = true }
+wasmer = { version = "7.5", default-features = false, features = ["sys-default"] }
+wasmer-wasix = { version = "0.705", default-features = false, features = ["sys"], optional = true }
 arboard = { version = "3", default-features = false, optional = true }
 raw-window-handle = { version = "0.6", optional = true }
-wasmer-webgpu = { version = "0.704", default-features = false, features = ["wasix"], optional = true }
+wasmer-webgpu = { version = "0.705", default-features = false, features = ["wasix"], optional = true }
 serde = { version = "1", features = ["derive"], optional = true }
 serde_json = { version = "1", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
-virtual-fs = { version = "0.704", optional = true }
+virtual-fs = { version = "0.705", optional = true }
 softbuffer = { version = "0.4", optional = true }
 winit = { version = "0.30", optional = true }
-wasmer-types = { version = "7.4", optional = true }
+wasmer-types = { version = "7.5", optional = true }
 
 # libdispatch, for a timer that macOS fires on time (src/macos_deadline.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -83,7 +83,7 @@ dispatch2 = { version = "0.3.1", default-features = false, features = ["alloc"] 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2.120", optional = true }
-wasmer-wasix = { version = "0.704", default-features = false, features = ["js"], optional = true }
+wasmer-wasix = { version = "0.705", default-features = false, features = ["js"], optional = true }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -141,12 +141,12 @@ required-features = ["cli", "webgpu"]
 # Its sibling in the Wasmer SDK's checkout, where the two are developed side
 # by side.
 wasmer-webgpu = { path = "../webgpu" }
-virtual-fs = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-virtual-mio = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-virtual-net = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer-config = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer-package = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer-wasix = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
-wasmer-wasix-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "5bd2b7d3182e816bd0ea330acc88e4e4733e167f" }
+virtual-fs = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+virtual-mio = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+virtual-net = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer-config = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer-package = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer-wasix = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
+wasmer-wasix-types = { git = "https://github.com/wasmerio/wasmer.git", rev = "f174113de186c57a8f004ac163c5cc78df49f025" }
