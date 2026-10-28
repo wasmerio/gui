@@ -38,8 +38,15 @@ pixels = ["winit", "dep:softbuffer"]
 webgpu = ["dep:wasmer-webgpu", "dep:raw-window-handle"]
 # The browser's window system: canvases of the page as windows, when this
 # crate is compiled as part of a wasm32-unknown-unknown wasm-bindgen module.
-# Inert on native targets.
-js = ["dep:js-sys", "dep:wasm-bindgen", "wasmer/js-default"]
+# Inert on native targets. Wasmer's asynchronous host functions are for waits
+# that suspend (`GuiCtxBuilder::suspending_waits`).
+js = [
+  "dep:js-sys",
+  "dep:wasm-bindgen",
+  "dep:wasm-bindgen-futures",
+  "wasmer/js-default",
+  "wasmer/experimental-async",
+]
 # Standalone runner (`gui_wasmer`) and the helpers the tests use.
 cli = [
   "wasix",
@@ -83,12 +90,16 @@ dispatch2 = { version = "0.3.1", default-features = false, features = ["alloc"] 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }
 wasm-bindgen = { version = "0.2.120", optional = true }
+wasm-bindgen-futures = { version = "0.4", optional = true }
 wasmer-wasix = { version = "0.705", default-features = false, features = ["js"], optional = true }
 
 [dev-dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wat = "1"
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen-test = "0.3"
 
 # Model checks of the handshake between waiting and waking (`make
 # test-loom`), built only with `--cfg loom`.
@@ -131,6 +142,13 @@ required-features = ["cli"]
 name = "gpu_tests"
 path = "tests/gpu_tests.rs"
 required-features = ["cli", "webgpu"]
+
+# The wait that suspends, in a JavaScript engine: needs a build with shared
+# memory (`make test-web-wait`).
+[[test]]
+name = "web_wait"
+path = "tests/web_wait.rs"
+required-features = ["js"]
 
 # This repository builds on its own. When the crate is consumed by path from
 # another workspace (the Wasmer SDK), that workspace's own patches apply and

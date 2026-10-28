@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use super::shared::InstanceShared;
 use super::{Cursor, Host, Object, ObjectKind, lock};
 use crate::abi::api::InstanceApi;
 use crate::abi::enums::*;
@@ -13,12 +14,61 @@ use crate::system::CursorImage;
 
 /// How long a waiting thread sleeps between looks at whether its program is
 /// being stopped.
-const WAIT_SLICE: Duration = Duration::from_millis(50);
+pub(super) const WAIT_SLICE: Duration = Duration::from_millis(50);
 /// How long a wait may last before the host hands the thread back for a
 /// moment (see `WGUIWaitReasons_Interrupted`).
 const INTERRUPT_AFTER: Duration = Duration::from_millis(250);
 /// The largest edge of a custom cursor when the window system names none.
 const MAX_CURSOR_EDGE: u32 = 512;
+
+/// One look at a waiting instance: why its wait is over, or how long to sleep
+/// before looking again. Shared by the parking wait and the browser's
+/// suspending one (`web_wait`), so both end for the same reasons.
+pub(crate) enum WaitStep {
+    /// The wait is over: the reasons it returns, or why the call fails.
+    Done(AbiResult<u32>),
+    /// Nothing ends it yet. Look again after this long at most, or as soon
+    /// as the instance's wait set is notified.
+    Sleep(Duration),
+}
+
+/// Looks once at a wait that began at `started`, on [`crate::clock`], and may
+/// last `limit` (`None` for as long as it takes). A pending wake is used up.
+pub(crate) fn wait_step(
+    shared: &InstanceShared,
+    stopped: &dyn Fn() -> bool,
+    started: Duration,
+    limit: Option<Duration>,
+) -> WaitStep {
+    let mut why = 0;
+    if shared.has_events() {
+        why |= wait_reasons::EVENTS;
+    }
+    if shared.wait.take_wake() {
+        why |= wait_reasons::WOKEN;
+    }
+    if why != 0 {
+        return WaitStep::Done(Ok(why));
+    }
+    if stopped() {
+        return WaitStep::Done(Err(AbiError::Stopped));
+    }
+    if shared.is_closed() {
+        // Another thread destroyed the instance under this one.
+        return WaitStep::Done(Ok(wait_reasons::INTERRUPTED));
+    }
+    let (wait_slice, interrupt_after) = slice_and_interrupt();
+    let waited = crate::clock::now().saturating_sub(started);
+    let left = match limit {
+        Some(limit) if waited >= limit => return WaitStep::Done(Ok(0)),
+        Some(limit) => limit - waited,
+        None => Duration::MAX,
+    };
+    if waited >= interrupt_after {
+        return WaitStep::Done(Ok(wait_reasons::INTERRUPTED));
+    }
+    WaitStep::Sleep(wait_slice.min(left).min(interrupt_after - waited))
+}
 
 #[cfg(test)]
 thread_local! {
@@ -108,38 +158,13 @@ impl InstanceApi for Host {
         let shared = &instance.shared;
         let limit = (timeout != WAIT_FOREVER).then(|| Duration::from_nanos(timeout));
         let started = crate::clock::now();
-        let (wait_slice, interrupt_after) = slice_and_interrupt();
         shared.waits.fetch_add(1, Ordering::AcqRel);
         shared.waiting.fetch_add(1, Ordering::AcqRel);
         let outcome = loop {
-            let mut why = 0;
-            if shared.has_events() {
-                why |= wait_reasons::EVENTS;
+            match wait_step(shared, cx.stopped, started, limit) {
+                WaitStep::Done(outcome) => break outcome,
+                WaitStep::Sleep(slice) => shared.wait.park(slice, || shared.has_events()),
             }
-            if shared.wait.take_wake() {
-                why |= wait_reasons::WOKEN;
-            }
-            if why != 0 {
-                break Ok(why);
-            }
-            if (cx.stopped)() {
-                break Err(AbiError::Stopped);
-            }
-            if shared.is_closed() {
-                // Another thread destroyed the instance under this one.
-                break Ok(wait_reasons::INTERRUPTED);
-            }
-            let waited = crate::clock::now().saturating_sub(started);
-            let left = match limit {
-                Some(limit) if waited >= limit => break Ok(0),
-                Some(limit) => limit - waited,
-                None => Duration::MAX,
-            };
-            if waited >= interrupt_after {
-                break Ok(wait_reasons::INTERRUPTED);
-            }
-            let slice = wait_slice.min(left).min(interrupt_after - waited);
-            shared.wait.park(slice, || shared.has_events());
         };
         shared.waiting.fetch_sub(1, Ordering::AcqRel);
         reasons.write(&cx.mem, &outcome?)?;

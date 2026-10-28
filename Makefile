@@ -16,7 +16,7 @@ OUT := tests/programs/out
 PROGRAMS := $(patsubst tests/programs/%.c,$(OUT)/%.wasm,$(wildcard tests/programs/*.c)) $(OUT)/link_all.wasm
 EXAMPLES := $(patsubst examples/%.c,examples/out/%.wasm,$(wildcard examples/*.c))
 
-.PHONY: all gen check check-header check-winit check-web check-sys fmt lint programs gpu-programs examples test test-loom test-gpu test-windows test-page sdl sdl-programs test-sdl imgui-demo test-imgui winit-programs test-winit clean
+.PHONY: all gen check check-header check-winit check-web check-sys fmt lint programs gpu-programs examples test test-loom test-gpu test-windows test-page test-web-wait sdl sdl-programs test-sdl imgui-demo test-imgui winit-programs test-winit clean
 
 all: programs examples
 
@@ -124,6 +124,25 @@ test-windows: programs gpu-programs
 ## writes down what it is told.
 test-page:
 	cd tests/browser && npm install --no-audit --no-fund && npm test
+
+## The wait that suspends (`GuiCtxBuilder::suspending_waits`), across
+## Wasmer's import boundary (tests/web_wait.rs): built for wasm32 with shared
+## memory, which takes nightly and rust-src, and run by wasm-bindgen's test
+## runner in Node, which needs JSPI. The runner's version has to be the one
+## of wasm-bindgen in Cargo.lock.
+CARGO_NIGHTLY ?= $(CARGO) +nightly
+WASM_BINDGEN_TEST_RUNNER ?= wasm-bindgen-test-runner
+WEB_WAIT_RUSTFLAGS := -C target-feature=+atomics,+bulk-memory,+mutable-globals \
+	-C link-arg=--shared-memory -C link-arg=--import-memory \
+	-C link-arg=--max-memory=1073741824 -C link-arg=--export=__wasm_init_tls \
+	-C link-arg=--export=__tls_size -C link-arg=--export=__tls_align \
+	-C link-arg=--export=__tls_base
+
+test-web-wait:
+	RUSTFLAGS="$(WEB_WAIT_RUSTFLAGS)" \
+	CARGO_TARGET_WASM32_UNKNOWN_UNKNOWN_RUNNER="$(WASM_BINDGEN_TEST_RUNNER)" \
+	$(CARGO_NIGHTLY) test -Z build-std=std,panic_abort --target wasm32-unknown-unknown \
+		--target-dir target/web-wait --no-default-features --features js --test web_wait
 
 ## SDL3 for WASIX with its "wasmer" video driver (integrations/sdl3): cloned
 ## at a pinned release, patched and built in $(SDL_WORK). A few minutes the

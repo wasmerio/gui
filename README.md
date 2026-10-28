@@ -165,6 +165,21 @@ What the user does on a canvas reaches a guest that waits for it through the
 embedder's shared memory, without a message and without JSPI. See
 `docs/architecture.md`.
 
+A guest that waits for input blocks its worker meanwhile, and with it
+whatever else completes there, such as WebGPU's callbacks. An embedder that
+enters its guests with `Function::call_async` can let the wait suspend
+instead, and hand the context's waker to that other work. Where the engine
+has no JSPI or no `Atomics.waitAsync`, waits block as before; a guest
+entered synchronously traps at its first wait.
+
+```rust
+let gui = GuiCtx::builder()
+    .window_system(Arc::new(windows))
+    .suspending_waits(true)
+    .build();
+let wake = gui.event_waker(); // for wasmer-webgpu's event waker, say
+```
+
 ## Layout
 
 | | |
@@ -194,6 +209,7 @@ make test           # unit tests, the ABI sweep, the test programs on the headle
 make test-gpu       # windows drawn on with WebGPU, on the headless host (needs a GPU adapter)
 make test-windows   # the programs that need nobody at the keyboard, in real windows
 make test-page      # the page half in the installed Chrome, with a core that only listens
+make test-web-wait  # the wait that suspends through JSPI, across Wasmer's imports, in Node
 make test-sdl       # SDL3 built for WASIX with its driver, and what SDL makes of scripted input
 make test-imgui     # Dear ImGui's SDL3 example, with a script that clicks and types in it
 make test-winit     # winit and softbuffer built for WASIX with their backends, and winit's own example
@@ -205,6 +221,12 @@ wasmer-webgpu checked out next to this repository (`../webgpu`). The SDL
 targets also need CMake and Ninja, and the winit ones
 [cargo-wasix](https://github.com/wasix-org/cargo-wasix); both clone what
 they build, at pinned releases.
+`test-web-wait` needs nightly Rust with `rust-src`, a Node.js with JSPI on
+by default (26 has it), and `wasm-bindgen-test-runner` of the version of
+wasm-bindgen in `Cargo.lock` (`cargo install wasm-bindgen-cli --version
+<it> --locked`; `WASM_BINDGEN_TEST_RUNNER` names it if not on the path).
+With `WASM_BINDGEN_USE_DEDICATED_WORKER=1` and chromedriver, the runner
+takes the same tests to a Worker in Chrome instead.
 `test-windows` opens its windows behind what you are working in. A window
 nobody can see has no frames to give, so behind a locked screen its drawing
 part is reported as skipped.

@@ -19,6 +19,8 @@ mod table;
 #[cfg(test)]
 pub(crate) mod tests;
 pub(crate) mod wait;
+#[cfg(all(target_arch = "wasm32", feature = "js"))]
+pub(crate) mod web_wait;
 mod window;
 
 use std::any::Any;
