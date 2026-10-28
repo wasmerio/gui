@@ -7,7 +7,7 @@
 //! empties the list and unparks.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering, fence};
 use std::thread::Thread;
 use std::time::Duration;
 
@@ -54,6 +54,9 @@ impl Default for WaitSet {
 impl WaitSet {
     /// Wakes every thread parked here. Lock-free.
     pub(crate) fn notify(&self) {
+        // Pairs with the fence in `park`: either the waiter's look sees what
+        // this was called for, or this sees the waiter in the list.
+        fence(Ordering::SeqCst);
         while let Some(waiter) = self.waiters.pop() {
             // Unless it has gone to wait somewhere else since: then it is
             // in that list, and this only wakes it for nothing.
@@ -75,19 +78,26 @@ impl WaitSet {
         self.woken.swap(false, Ordering::AcqRel)
     }
 
-    /// Parks the calling thread for at most `slice`, unless `ready` holds.
+    /// Parks the calling thread for at most `slice`, unless a wake is pending
+    /// or `ready` holds.
     ///
-    /// `ready` is checked after the thread is in the list, so a notification
+    /// Both are checked after the thread is in the list, so a notification
     /// that arrives between the caller's own check and the park is not lost:
-    /// either `ready` sees what it was for, or the notifier finds the thread
-    /// and unparks it. May return early for no reason; callers loop.
+    /// either the check sees what it was for, or the notifier finds the thread
+    /// and unparks it. A pending wake is only looked at here; the caller takes
+    /// it. May return early for no reason; callers loop.
     pub(crate) fn park(&self, slice: Duration, ready: impl FnOnce() -> bool) {
         WAITER.with(|waiter| {
             if waiter.queued.swap(self.id, Ordering::AcqRel) != self.id {
                 self.waiters.push(Arc::clone(waiter));
             }
         });
-        if ready() {
+        #[cfg(test)]
+        tests::in_the_list();
+        // Pairs with the fence in `notify`, which comes after whatever it
+        // was called for (a wake, an event) and before it looks at the list.
+        fence(Ordering::SeqCst);
+        if self.woken.load(Ordering::Acquire) || ready() {
             return;
         }
         std::thread::park_timeout(slice);
@@ -97,8 +107,21 @@ impl WaitSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
     use std::sync::atomic::AtomicU32;
     use std::time::Instant;
+
+    thread_local! {
+        /// Run by `park` on this thread once the thread is in the list,
+        /// before it looks at anything.
+        static IN_THE_LIST: Cell<Option<Box<dyn FnOnce()>>> = const { Cell::new(None) };
+    }
+
+    pub(super) fn in_the_list() {
+        if let Some(hook) = IN_THE_LIST.take() {
+            hook();
+        }
+    }
 
     #[test]
     fn a_notification_ends_a_park_long_before_its_slice() {
@@ -190,6 +213,141 @@ mod tests {
         assert!(!set.take_wake());
     }
 
+    fn assert_wake_at_park_boundary_returns(before_registration: bool) {
+        // A fresh thread has no old waiter registration or unpark token.
+        let set = Arc::new(WaitSet::default());
+        let (done, completion) = std::sync::mpsc::channel();
+        let worker = {
+            let set = Arc::clone(&set);
+            std::thread::spawn(move || {
+                // Mirrors instance_wait_events' outer-loop check.
+                assert!(!set.take_wake());
+                if before_registration {
+                    assert!(set.waiters.is_empty());
+                    set.wake();
+                }
+                set.park(Duration::from_secs(30), || {
+                    if !before_registration {
+                        // The waiter exists, but park_timeout has not run.
+                        set.wake();
+                    }
+                    false
+                });
+                done.send(set.take_wake()).expect("completion receiver");
+            })
+        };
+        let result = completion.recv_timeout(Duration::from_secs(1));
+        // Release a regressed implementation without waiting for its slice.
+        set.notify();
+        worker.join().expect("joins");
+        assert_eq!(result, Ok(true), "pending wake slept through park");
+    }
+
+    #[test]
+    fn a_wake_between_outer_check_and_registration_does_not_park() {
+        assert_wake_at_park_boundary_returns(true);
+    }
+
+    #[test]
+    fn a_wake_just_before_the_park_ends_it_at_once() {
+        assert_wake_at_park_boundary_returns(false);
+    }
+
+    /// A flag one thread raises and another waits for. It spins rather than
+    /// parks: a park there could use up the unpark a test is about.
+    #[derive(Clone, Default)]
+    struct Gate(Arc<AtomicBool>);
+
+    impl Gate {
+        fn open(&self) {
+            self.0.store(true, Ordering::Release);
+        }
+
+        fn wait(&self) {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !self.0.load(Ordering::Acquire) {
+                assert!(Instant::now() < deadline, "the other thread never came");
+                std::thread::yield_now();
+            }
+        }
+    }
+
+    /// Where a waiting thread is held while another thread wakes the set.
+    #[derive(Clone, Copy)]
+    enum Hold {
+        /// Past its own look at the wake, not yet in the list. The waker
+        /// finds nobody to unpark: only the look `park` takes once the
+        /// thread is in the list can end the wait.
+        BeforeTheList,
+        /// In the list, before `park` looks. The waker finds the thread:
+        /// the look sees the wake, or the unpark ends the park.
+        InTheList,
+        /// In the list, its look at the wake taken and missed. Only the
+        /// unpark can end the park.
+        AfterTheLook,
+    }
+
+    /// The waking thread acts while the waiting one is held, and the gates
+    /// order the two: this checks what each side does at the boundary, not
+    /// how their accesses may be reordered (the loom model below does).
+    fn assert_a_wake_from_another_thread_ends_the_wait(hold: Hold) {
+        // A fresh thread has no old waiter registration or unpark token.
+        let set = Arc::new(WaitSet::default());
+        let (held, woken) = (Gate::default(), Gate::default());
+        let (done, completion) = std::sync::mpsc::channel();
+        let waiter = {
+            let (set, held, woken) = (Arc::clone(&set), held.clone(), woken.clone());
+            std::thread::spawn(move || {
+                // Mirrors instance_wait_events' outer-loop check.
+                assert!(!set.take_wake());
+                let wait_for_the_wake = move || {
+                    held.open();
+                    woken.wait();
+                };
+                let mut ready = None;
+                match hold {
+                    Hold::BeforeTheList => wait_for_the_wake(),
+                    Hold::InTheList => IN_THE_LIST.set(Some(Box::new(wait_for_the_wake))),
+                    Hold::AfterTheLook => ready = Some(wait_for_the_wake),
+                }
+                set.park(Duration::from_secs(30), || {
+                    if let Some(wait_for_the_wake) = ready {
+                        wait_for_the_wake();
+                    }
+                    false
+                });
+                done.send(set.take_wake()).expect("completion receiver");
+            })
+        };
+        held.wait();
+        set.wake();
+        woken.open();
+        let result = completion.recv_timeout(Duration::from_secs(5));
+        // Release a regressed implementation without waiting for its slice.
+        set.notify();
+        waiter.join().expect("joins");
+        assert_eq!(
+            result,
+            Ok(true),
+            "a wake from another thread slept through park"
+        );
+    }
+
+    #[test]
+    fn a_wake_from_another_thread_before_registration_does_not_park() {
+        assert_a_wake_from_another_thread_ends_the_wait(Hold::BeforeTheList);
+    }
+
+    #[test]
+    fn a_wake_from_another_thread_after_registration_ends_the_park() {
+        assert_a_wake_from_another_thread_ends_the_wait(Hold::InTheList);
+    }
+
+    #[test]
+    fn a_wake_from_another_thread_after_the_look_ends_the_park() {
+        assert_a_wake_from_another_thread_ends_the_wait(Hold::AfterTheLook);
+    }
+
     #[test]
     fn no_wakeup_is_lost_under_contention() {
         // Each round, the producer makes one unit of work and notifies; the
@@ -222,5 +380,72 @@ mod tests {
             started.elapsed() < Duration::from_secs(15),
             "a wakeup was lost"
         );
+    }
+}
+
+/// The handshake between `park` and `notify` under loom (`make test-loom`),
+/// which runs the model in every interleaving and lets each load read any
+/// store the memory model allows it to. The tests above can only order the
+/// two threads; this is about how each one's accesses look to the other.
+///
+/// The waiter registers, fences and looks; the notifier publishes what it
+/// was called for, fences and looks for waiters. Either the waiter's look
+/// sees what was published, or the notifier finds the waiter and unparks
+/// it: std's park returns at once for an unpark that came before it. Being
+/// in the list is one flag, written and read Relaxed: the fences have to be
+/// enough, whatever order crossbeam's queue gives its own accesses. It is a
+/// model of the handshake, not of this code: the queue, a waiter's `queued`
+/// mark and parking itself are left out.
+///
+/// loom 0.7 implements `fence(SeqCst)`, but not SeqCst loads and stores (it
+/// takes them for AcqRel). It gives such a fence a happens-before edge to
+/// the next one, which is more than C11 does; for this pattern, two threads
+/// and atomics only, the two agree. It does not explore load buffering,
+/// which this pattern has no part in.
+#[cfg(all(test, loom))]
+mod model {
+    use loom::sync::Arc;
+    use loom::sync::atomic::{AtomicBool, Ordering, fence};
+
+    #[test]
+    fn a_waiter_parks_only_where_its_notifier_finds_it() {
+        loom::model(|| {
+            // The waiter is in the list.
+            let listed = Arc::new(AtomicBool::new(false));
+            // What the notifier was called for: the sticky wake, or an event
+            // `ready` looks for.
+            let woken = Arc::new(AtomicBool::new(false));
+            let notifier = {
+                let (listed, woken) = (Arc::clone(&listed), Arc::clone(&woken));
+                loom::thread::spawn(move || {
+                    // `wake`, then `notify`.
+                    woken.store(true, Ordering::Release);
+                    fence(Ordering::SeqCst);
+                    listed.load(Ordering::Relaxed)
+                })
+            };
+            // `instance_wait_events` takes a pending wake before it parks.
+            // `take_wake` swaps false in; this returns the same and leaves
+            // the flag the same, but doesn't write when there is nothing to
+            // take. With the swap, loom reports a lost wake that C11 rules
+            // out: the swap read the initial false, so it comes before the
+            // notifier's store in the flag's modification order, but loom
+            // orders a store only after those its thread has seen, and lets
+            // the look after the fence read the swap's false.
+            let taken = woken
+                .compare_exchange(true, false, Ordering::AcqRel, Ordering::Acquire)
+                .is_ok();
+            // `park`.
+            let returned = taken || {
+                listed.store(true, Ordering::Relaxed);
+                fence(Ordering::SeqCst);
+                woken.load(Ordering::Acquire)
+            };
+            let found = notifier.join().expect("joins");
+            assert!(
+                returned || found,
+                "the waiter parked where its notifier won't find it"
+            );
+        });
     }
 }
