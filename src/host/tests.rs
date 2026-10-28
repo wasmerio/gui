@@ -1857,6 +1857,111 @@ fn a_kill_shows_on_the_guest_s_memory() {
     assert!(super::killed(&probe));
 }
 
+#[test]
+fn external_wake_is_sticky_for_live_scopes_without_synthetic_input() {
+    use crate::abi::structs::InstanceDescriptor;
+    let ctx = GuiCtx::default();
+    let scopes = [ctx.scope(), ctx.scope()];
+    let instances: Vec<_> = scopes
+        .iter()
+        .map(|scope| {
+            let handle = scope
+                .host()
+                .open_instance(&InstanceDescriptor {
+                    abi_version: crate::abi::enums::ABI_VERSION,
+                    ..Default::default()
+                })
+                .expect("instance opens");
+            scope.host().instance(handle).expect("instance lives")
+        })
+        .collect();
+    let unrelated = GuiCtx::default();
+    let foreign = unrelated.scope();
+    let handle = foreign
+        .host()
+        .open_instance(&InstanceDescriptor {
+            abi_version: crate::abi::enums::ABI_VERSION,
+            ..Default::default()
+        })
+        .expect("foreign instance opens");
+    let foreign_instance = foreign.host().instance(handle).expect("foreign lives");
+    let wake = ctx.event_waker();
+    std::thread::spawn(move || wake())
+        .join()
+        .expect("producer finishes");
+    for instance in &instances {
+        assert!(
+            instance.shared.wait.take_wake(),
+            "a wake before the wait is kept"
+        );
+        assert!(!instance.shared.wait.take_wake(), "wake is consumed once");
+        assert!(
+            !instance.shared.has_events(),
+            "wake did not fabricate input"
+        );
+    }
+    assert!(
+        !foreign_instance.shared.wait.take_wake(),
+        "different contexts remain isolated"
+    );
+    assert!(scopes.iter().all(|scope| !scope.is_closed()));
+    // A closed scope has no instances left to wake.
+    scopes[0].close();
+    ctx.runtime_control().wake_all();
+    assert!(
+        !instances[0].shared.wait.take_wake(),
+        "closed instance is ignored"
+    );
+    assert!(
+        instances[1].shared.wait.take_wake(),
+        "remaining scope still wakes"
+    );
+}
+
+#[test]
+fn an_external_wake_ends_a_wait_at_once() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+    let (setup, set_up) = mpsc::channel();
+    let (parking, parked) = mpsc::channel();
+    let (done, completion) = mpsc::channel();
+    let guest = std::thread::spawn(move || {
+        // The rig stays on this thread. The test gets the waker, and what
+        // releases a regressed host.
+        let rig = Rig::new();
+        let wake = GuiCtx {
+            inner: Arc::clone(&rig.host().ctx),
+        }
+        .event_waker();
+        setup.send((wake, rig.shared())).expect("the test listens");
+        // Each park of this wait lasts a minute rather than WAIT_SLICE, and
+        // the host doesn't interrupt the wait before then either: if the wake
+        // doesn't unpark the guest, the guest doesn't come round to see it.
+        super::instance::STRETCHED_WAIT.set(Some(Duration::from_secs(60)));
+        super::wait::PARKING.set(Some(parking));
+        let status = rig.call(|host, cx| {
+            host.instance_wait_events(cx, rig.instance, WAIT_FOREVER, OutPtr::new(SIZE))
+        });
+        done.send((status, rig.read_u32(SIZE)))
+            .expect("completion receiver");
+    });
+    let (wake, shared) = set_up.recv().expect("the guest sets up");
+    // Woken once it is done looking, when only an unpark ends its park.
+    parked
+        .recv_timeout(Duration::from_secs(10))
+        .expect("the guest parks");
+    wake();
+    let outcome = completion.recv_timeout(Duration::from_secs(5));
+    // Release a regressed host without waiting out its park.
+    shared.wait.notify();
+    guest.join().expect("joins");
+    assert_eq!(
+        outcome,
+        Ok((Ok(Status::Success), wait_reasons::WOKEN)),
+        "the wake left the guest parked"
+    );
+}
+
 // -- frame pacing --------------------------------------------------------------
 
 /// How a headless display paces a guest that draws every frame, at 60 Hz on

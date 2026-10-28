@@ -165,6 +165,20 @@ impl Host {
         self.closed.load(Ordering::Acquire) || self.ctx.stopped.load(Ordering::Acquire)
     }
 
+    /// `wguiInstanceWake` on every instance of the scope. The table is only
+    /// held to list them, never while waking.
+    pub(crate) fn wake(&self) {
+        if self.is_closed() {
+            return;
+        }
+        let instances = lock(&self.table).all(ObjectKind::Instance);
+        for object in instances {
+            if let Object::Instance(instance) = object {
+                instance.shared.wait.wake();
+            }
+        }
+    }
+
     /// Ends the scope: everything in it is destroyed, and its guests are
     /// stopped at their next call, or now if they are waiting for input.
     pub(crate) fn close(&self) {
