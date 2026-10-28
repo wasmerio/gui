@@ -22,13 +22,14 @@
 //! already does when the guest's WebGPU imports suspend. No lock is held
 //! meanwhile, only the instance's shared state, where the counter is.
 //!
-//! Two things come out differently from the parking wait. A scope closed
+//! One thing comes out differently from the parking wait: a scope closed
 //! while the guest sleeps stops it at the next look even if input or a wake
 //! came at the same moment, where the parking wait returns those first and
-//! stops the guest at its next call. And what ends the program as the wait
+//! stops the guest at its next call. What ends the program as the wait
 //! returns (a WASIX exit, a signal without a handler, from `let_signals_in`)
-//! reaches the runtime as its message only: Wasmer's asynchronous host
-//! functions in JavaScript reject with a failure's text.
+//! reaches the runtime with its type, as from the parking wait, given a
+//! Wasmer whose asynchronous host functions in JavaScript keep it
+//! (wasmerio/wasmer#7122; the revision this repository pins has it).
 //!
 //! Notifications reach the counter through JavaScript's `Atomics.notify`,
 //! which the specification guarantees wakes `Atomics.waitAsync` on the same
@@ -215,8 +216,8 @@ async fn wait_events(
         let Some((slice, seen)) = sleep else {
             drop(waiting);
             let mut store = env.write().await;
-            // A failure here is the runtime's own; it gets only its text
-            // through (see above).
+            // A failure here (an exit, a signal) is the runtime's own, and
+            // reaches it with its type (see above).
             let_signals_in(&mut store.as_function_env_mut(), true)?;
             return Ok(returned);
         };

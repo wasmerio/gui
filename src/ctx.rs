@@ -190,10 +190,11 @@ impl GuiCtxBuilder {
     /// guest entered synchronously cannot suspend: its first wait traps.
     ///
     /// What ends a program in its wait (a WASIX exit, a signal it has no
-    /// handler for) reaches the runtime only as its message, for now:
-    /// Wasmer's asynchronous host functions in JavaScript pass a failure on
-    /// as its text. The runtime then reports the program as failed, rather
-    /// than with its exit code.
+    /// handler for) reaches the runtime with its type, as from a blocking
+    /// wait, given a Wasmer whose asynchronous host functions in JavaScript
+    /// keep it (wasmerio/wasmer#7122; the revision this repository pins has
+    /// it). With an older one it arrives as its text only, and the runtime
+    /// reports the program as failed rather than with its exit code.
     pub fn suspending_waits(mut self, suspend: bool) -> Self {
         self.suspending_waits = suspend;
         self
