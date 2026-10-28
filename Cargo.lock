@@ -5820,6 +5820,7 @@ dependencies = [
  "anyhow",
  "arboard",
  "crossbeam-queue",
+ "dispatch2",
  "js-sys",
  "loom",
  "raw-window-handle",
