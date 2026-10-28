@@ -83,6 +83,13 @@ const PASTE_KEY_WINDOW_MS = 1000;
 const PASTE_EVENT_WAIT_MS = 500;
 /** How long after a key press the field's own reaction to it is expected. */
 const KEY_INPUT_WINDOW_MS = 100;
+/**
+ * How long a window goes without a redraw before the next one it asks for is
+ * not kept for the browser's next frame, with `eagerRedraw`. Three frames at
+ * 60 Hz, and more than one at 30 Hz: a guest drawing frame after frame keeps
+ * to the frames even when each of its frames takes two of the display's.
+ */
+const EAGER_REDRAW_QUIET_MS = 50;
 
 const SHAPE_NAMES = new Map(
   Object.entries(CursorShape).map(([name, value]) => [
@@ -190,6 +197,8 @@ class View {
     this.cursor = "";
     this.cursorVisible = true;
     this.redrawAsked = false;
+    /** When the guest was last told to redraw. */
+    this.redrawnAt = -Infinity;
     this.locked = false;
     // The text field that stands in for the canvas while text is entered.
     this.field = null;
@@ -548,9 +557,23 @@ class GuiPage {
     const redraw = () => {
       view.redrawAsked = false;
       view.redrawFrame = undefined;
+      view.redrawnAt = this.now();
       if (this.views.get(id) === view) this.core.redraw(id);
     };
-    if (typeof this.window.requestAnimationFrame === "function") {
+    // With `eagerRedraw`, the first request after a quiet moment, which is
+    // usually the guest's answer to something the user did, is answered at
+    // once (after the call that made it, not inside it). The browser's next
+    // frame is then mostly a whole frame away: the one in which the input
+    // came has already run its callbacks when the guest asks. A guest that
+    // draws frame after frame keeps to the frames, and a window nobody can
+    // see waits for them as before.
+    if (
+      this.options.eagerRedraw === true &&
+      !view.occluded &&
+      this.now() - view.redrawnAt >= EAGER_REDRAW_QUIET_MS
+    ) {
+      queueMicrotask(redraw);
+    } else if (typeof this.window.requestAnimationFrame === "function") {
       view.redrawFrame = this.window.requestAnimationFrame(redraw);
     } else {
       redraw();
@@ -1401,6 +1424,12 @@ function randomName() {
  * - `resizable`: `false` keeps guests from asking the canvas to be another
  *   size; the page's layout alone decides.
  * - `manageCanvasSize`: `false` leaves `canvas.width` and `height` alone.
+ * - `eagerRedraw`: `true` answers a window's first request to redraw after
+ *   50 ms without one at once, instead of at the browser's next frame. That
+ *   frame is usually most of a frame away when the request answers something
+ *   the user did, so what the user did is shown about a frame sooner.
+ *   Requests that follow one another keep to the frames, and a window nobody
+ *   can see waits for them. Off by default.
  * - `document`: the document, when it is not `globalThis.document`.
  */
 export function createGuiPage(core, options) {

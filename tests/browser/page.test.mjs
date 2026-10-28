@@ -78,6 +78,21 @@ const PAGE = `<!doctype html>
       for (let i = calls.length - 1; i >= 0; i--) if (calls[i][0] === name) calls.splice(i, 1);
       return found;
     },
+    /**
+     * Asks for a redraw of a window, and gives the redraws the core was told
+     * before the browser could have run a frame: in the same task.
+     */
+    askRedraw: async (id) => {
+      gui.requestRedraw(id);
+      await null;
+      return harness.take("redraw");
+    },
+    /** The redraws the core was told by the end of the browser's next frame. */
+    nextFrame: async () => {
+      await new Promise((done) => requestAnimationFrame(() => done()));
+      return harness.take("redraw");
+    },
+    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
   };
 </script>`;
 
@@ -470,6 +485,94 @@ test("a canvas nobody can see says so, and asks to be drawn when it can be", { s
   await until(page, () => harness.calls.some((call) => call[0] === "redraw"));
   await page.waitForTimeout(50);
   assert.deepEqual(await page.evaluate(() => harness.take("redraw")), [[1]]);
+  assert.deepEqual(errors, []);
+});
+
+test("a redraw waits for the browser's next frame, unless the page wants it at once after a quiet moment", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  const seen = await page.evaluate(async () => {
+    const seen = {};
+    // By default, even after a quiet moment, a redraw waits for the frame.
+    harness.open().createWindow(1, { target: "" });
+    await harness.sleep(100);
+    harness.calls.length = 0;
+    seen.byDefault = [await harness.askRedraw(1), await harness.nextFrame()];
+    gui.dispose();
+
+    // With `eagerRedraw`, it comes at once, and only then.
+    harness.open({ eagerRedraw: true }).createWindow(1, { target: "" });
+    await harness.sleep(100);
+    harness.calls.length = 0;
+    seen.eager = [await harness.askRedraw(1), await harness.nextFrame()];
+    // A window closed before it is told is not told.
+    await harness.sleep(100);
+    gui.requestRedraw(1);
+    gui.destroyWindow(1);
+    await null;
+    seen.closed = [harness.take("redraw"), await harness.nextFrame()];
+    gui.dispose();
+    return seen;
+  });
+  // [what was told at once, what by the next frame], as [view] each.
+  assert.deepEqual(seen.byDefault, [[], [[1]]]);
+  assert.deepEqual(seen.eager, [[[1]], []]);
+  assert.deepEqual(seen.closed, [[], []]);
+  assert.deepEqual(errors, []);
+});
+
+test("eager redraws keep to the browser's frames while the guest draws frame after frame", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  const seen = await page.evaluate(async () => {
+    harness.open({ eagerRedraw: true }).createWindow(1, { target: "" });
+    await harness.sleep(100);
+    harness.calls.length = 0;
+    const { askRedraw, nextFrame } = harness;
+    const seen = [];
+    // The first request after a quiet moment: at once.
+    seen.push(await askRedraw(1));
+    // Asked again as soon as it was told: at the next frame.
+    seen.push(await askRedraw(1), await nextFrame());
+    // And again in that frame: at the one after.
+    seen.push(await askRedraw(1), await nextFrame());
+    // After a quiet moment, at once again.
+    await harness.sleep(100);
+    seen.push(await askRedraw(1), await nextFrame());
+    return seen;
+  });
+  assert.deepEqual(seen, [[[1]], [], [[1]], [], [[1]], [[1]], []]);
+  assert.deepEqual(errors, []);
+});
+
+test("a window nobody can see waits for the browser's frames, eager or not", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  await page.evaluate(() => {
+    harness.open({ eagerRedraw: true }).createWindow(1, { target: "" });
+    harness.calls.length = 0;
+    window.scrollTo(0, 2000);
+  });
+  await until(page, () => harness.calls.some((call) => call[0] === "flags"));
+  const hidden = await page.evaluate(async () => {
+    harness.calls.length = 0;
+    return [await harness.askRedraw(1), await harness.nextFrame()];
+  });
+  assert.deepEqual(hidden, [[], [[1]]]);
+
+  // Seen again, and told to redraw for it: after a quiet moment the first
+  // request is answered at once.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await until(page, () => harness.calls.some((call) => call[0] === "flags"));
+  const shown = await page.evaluate(async () => {
+    await harness.sleep(100);
+    harness.calls.length = 0;
+    return [await harness.askRedraw(1), await harness.nextFrame()];
+  });
+  assert.deepEqual(shown, [[[1]], []]);
   assert.deepEqual(errors, []);
 });
 

@@ -101,7 +101,10 @@ repeatable.
 A guest that asks to redraw is told when the display is ready for its next
 frame, once per refresh, on every window system, and not while its window
 cannot be seen: that is what a guest without a GPU paces itself by. A
-browser has animation frames for it. winit answers such a request at once on
+browser has animation frames for it. A page can have the first request after
+a quiet moment answered at once instead (`eagerRedraw`, see `createGuiPage`
+in js/gui_page.js): what a guest draws in answer to the user is then on
+screen about a frame sooner. winit answers such a request at once on
 most platforms, so the native loop counts the refreshes of the window's
 display itself: a request is answered at the refresh after the one the last
 request was for, and dropped while the window is known to be out of sight
