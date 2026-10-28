@@ -460,10 +460,10 @@ impl App {
                 AttentionLevel::Critical => Some(UserAttentionType::Critical),
             }),
             // A window out of sight is told to redraw when it is seen again.
-            WindowChange::Redraw if entry.unseen => {}
+            WindowChange::Redraw { .. } if entry.unseen => {}
             // Already waiting for the display: one redraw answers both.
-            WindowChange::Redraw if entry.redraw_due.is_some() => {}
-            WindowChange::Redraw => {
+            WindowChange::Redraw { .. } if entry.redraw_due.is_some() => {}
+            WindowChange::Redraw { .. } => {
                 let (tick, held) =
                     next_refresh(entry.redraw_tick, Instant::now(), frame_interval(&window));
                 entry.redraw_tick = Some(tick);
