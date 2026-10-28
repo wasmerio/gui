@@ -1961,3 +1961,105 @@ fn an_external_wake_ends_a_wait_at_once() {
         "the wake left the guest parked"
     );
 }
+
+// -- frame pacing --------------------------------------------------------------
+
+/// How a headless display paces a guest that draws every frame, at 60 Hz on
+/// a real clock: the distribution of the intervals between its frames, and
+/// of how late each refresh came past its time. On macOS it is measured
+/// twice: with the strict timer the display thread waits on, and with the
+/// plain sleep it falls back on.
+///
+/// A stand-in guest asks for a redraw, polls until `WindowRedrawRequested`
+/// arrives, and takes the record's timestamp, 600 times over. Timestamps
+/// and refreshes count from the system's start, so how late a refresh came
+/// is exact.
+///
+/// It prints what it measured and checks nothing of it: a strict timer is
+/// a request the system does its best with, and a busy machine is not a
+/// failure. Run it on its own, on a machine that is otherwise idle:
+///
+/// ```text
+/// cargo test --release --features cli --lib frame_pacing -- --ignored --nocapture
+/// ```
+#[test]
+#[ignore = "measures for seconds and checks nothing of it: run by hand, as its documentation says"]
+fn frame_pacing() {
+    #[cfg(target_os = "macos")]
+    {
+        pace("strict timer");
+        crate::headless::SLEEP_FOR_REFRESH.store(true, Ordering::Relaxed);
+        pace("thread::sleep");
+        crate::headless::SLEEP_FOR_REFRESH.store(false, Ordering::Relaxed);
+    }
+    #[cfg(not(target_os = "macos"))]
+    pace("thread::sleep");
+}
+
+/// One run of `frame_pacing`, printed as waiting with `wait`.
+fn pace(wait: &str) {
+    use std::time::{Duration, Instant};
+
+    const FRAMES: usize = 600;
+    /// A frame at 60 Hz, in nanoseconds.
+    const INTERVAL: u64 = 1_000_000_000 / 60;
+    let rig = Rig::with(
+        HeadlessOptions {
+            clock: HeadlessClock::Real,
+            redraws: crate::headless::HeadlessRedraws::Paced,
+            refresh_rate: 60_000,
+            ..HeadlessOptions::default()
+        },
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    let (window, _user) = rig.window();
+    rig.events();
+    let mut stamps = Vec::with_capacity(FRAMES + 1);
+    while stamps.len() <= FRAMES {
+        assert_eq!(
+            rig.call(|host, cx| host.window_request_redraw(cx, window)),
+            Ok(Status::Success)
+        );
+        let asked = Instant::now();
+        let stamp = loop {
+            let redrawn = rig.records().into_iter().find_map(|(header, event)| {
+                matches!(event, Event::WindowRedrawRequested).then_some(header.timestamp)
+            });
+            if let Some(stamp) = redrawn {
+                break stamp;
+            }
+            assert!(asked.elapsed() < Duration::from_secs(10), "no refresh");
+            std::thread::yield_now();
+        };
+        stamps.push(stamp);
+    }
+    assert_eq!(stamps.len(), FRAMES + 1);
+
+    let ms = |nanos: u64| nanos as f64 / 1e6;
+    let mut intervals: Vec<u64> = stamps.windows(2).map(|pair| pair[1] - pair[0]).collect();
+    // Past the refresh before it: the one it waited for, unless it came a
+    // whole frame late, which shows as a frame skipped.
+    let mut late: Vec<u64> = stamps[1..].iter().map(|stamp| stamp % INTERVAL).collect();
+    let skipped = intervals
+        .iter()
+        .filter(|&&interval| interval > INTERVAL * 3 / 2)
+        .count();
+    intervals.sort_unstable();
+    late.sort_unstable();
+    let at = |sorted: &[u64], quantile: f64| {
+        ms(sorted[((sorted.len() - 1) as f64 * quantile).round() as usize])
+    };
+    println!(
+        "frame_pacing, {wait}: {FRAMES} frames at 60 Hz; \
+         interval ms p50 {:.2} p95 {:.2} p99 {:.2} max {:.2}; \
+         late ms p50 {:.3} p95 {:.3} max {:.3}; skipped {skipped}",
+        at(&intervals, 0.5),
+        at(&intervals, 0.95),
+        at(&intervals, 0.99),
+        at(&intervals, 1.0),
+        at(&late, 0.5),
+        at(&late, 0.95),
+        at(&late, 1.0),
+    );
+}

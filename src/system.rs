@@ -221,7 +221,16 @@ pub enum WindowChange {
     Focus,
     Attention(AttentionLevel),
     /// Report [`WindowSink::redraw_requested`] when the window can be drawn.
-    Redraw,
+    #[non_exhaustive]
+    Redraw {
+        /// The guest asked before it waited for events on the window's
+        /// instance again, after it read its last redraw of the window. A
+        /// guest that reads, draws and asks on one thread is then drawing
+        /// frame after frame, and should be told at the display's next frame
+        /// even by a window system that could tell it sooner. One that waits
+        /// between its frames, or on another thread, is not seen drawing.
+        while_drawing: bool,
+    },
     CursorShape(CursorShape),
     /// Show this cursor, or the default one with `None`.
     CustomCursor(Option<std::sync::Arc<CursorImage>>),
