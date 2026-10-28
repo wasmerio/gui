@@ -522,6 +522,16 @@ test("a redraw waits for the browser's next frame, unless the page wants it at o
     seen.moved = [await askRedraw(1), await nextFrame()];
     harness.press();
     seen.pressed = [await askRedraw(1), await nextFrame()];
+    // A request already waiting for a frame is answered at once when the
+    // user does something and the guest asks again.
+    seen.waiting = [await askRedraw(1)];
+    harness.touch();
+    seen.waiting.push(await askRedraw(1), await nextFrame());
+    // Focus the guest moves is not the user's doing; focus the user moves is.
+    gui.focus(1);
+    seen.guestFocus = [document.activeElement.id, await askRedraw(1), await nextFrame()];
+    document.activeElement.blur();
+    seen.userFocus = [await askRedraw(1), await nextFrame()];
     // A window closed before it is told is not told.
     harness.touch();
     gui.requestRedraw(1);
@@ -536,6 +546,9 @@ test("a redraw waits for the browser's next frame, unless the page wants it at o
   assert.deepEqual(seen.quiet, [[], [[1]]]);
   assert.deepEqual(seen.moved, [[[1]], []]);
   assert.deepEqual(seen.pressed, [[[1]], []]);
+  assert.deepEqual(seen.waiting, [[], [[1]], []]);
+  assert.deepEqual(seen.guestFocus, ["view", [], [[1]]]);
+  assert.deepEqual(seen.userFocus, [[[1]], []]);
   assert.deepEqual(seen.closed, [[], []]);
   assert.deepEqual(errors, []);
 });
@@ -615,6 +628,38 @@ test("a window nobody can see waits for the browser's frames, and so does a requ
     return { told, next, control };
   });
   assert.deepEqual(shown, { told: [[1]], next: [[], [[1]]], control: [[[1]], []] });
+  assert.deepEqual(errors, []);
+});
+
+test("the redraw a window gets when it is seen again answers the request waiting for a frame", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  await page.evaluate(async () => {
+    harness.open().createWindow(1, { target: "" });
+    await harness.nextFrame();
+    harness.calls.length = 0;
+    window.scrollTo(0, 2000);
+  });
+  await until(page, () => harness.calls.some((call) => call[0] === "flags"));
+  const told = await page.evaluate(async () => {
+    await harness.nextFrame();
+    harness.calls.length = 0;
+    // The guest asks while nobody can see the window: its request waits for
+    // a frame. The window is seen again before that frame (the browser
+    // reports it right after the scroll), and the redraw for being seen
+    // answers the request too.
+    gui.requestRedraw(1);
+    window.scrollTo(0, 0);
+    const seenBeforeTheFrame = await new Promise((done) =>
+      requestAnimationFrame(() => done(harness.calls.some((call) => call[0] === "flags"))),
+    );
+    const told = harness.take("redraw");
+    for (let frame = 0; frame < 4; frame++) told.push(...(await harness.nextFrame()));
+    return [seenBeforeTheFrame, harness.take("flags"), told];
+  });
+  const OCCLUDED = 0x40000;
+  assert.deepEqual(told, [true, [[1, OCCLUDED, 0]], [[1]]]);
   assert.deepEqual(errors, []);
 });
 

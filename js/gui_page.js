@@ -254,6 +254,8 @@ class GuiPage {
     this.pasted = { text: null, at: -Infinity };
     this.installed = false;
     this.pointerValues = new Float64Array(POINTER.Length);
+    /** The page is moving the focus for the guest (see `moveFocus`). */
+    this.movingFocus = false;
   }
 
   // -- what the guest asks for --------------------------------------------------
@@ -503,7 +505,9 @@ class GuiPage {
       if (!view.field) return;
       // The canvas takes the keyboard back before the field goes, so that
       // the window never is without it in between.
-      if (this.document.activeElement === view.field) view.canvas.focus({ preventScroll: true });
+      if (this.document.activeElement === view.field) {
+        this.moveFocus(() => view.canvas.focus({ preventScroll: true }));
+      }
       this.removeField(view);
       view.textInput = null;
       this.core.textState(id, false, false);
@@ -519,7 +523,7 @@ class GuiPage {
     // The field takes the keyboard from the canvas, and with it the focus
     // the window already had.
     if (view.focused || this.document.activeElement === view.canvas) {
-      field.focus({ preventScroll: true });
+      this.moveFocus(() => field.focus({ preventScroll: true }));
     }
     if (created) this.core.textState(id, true, false);
   }
@@ -533,44 +537,76 @@ class GuiPage {
     view.field.value = "";
     // The only way a page has of telling an input method to start over.
     if (this.document.activeElement === view.field) {
-      view.field.blur();
-      view.field.focus({ preventScroll: true });
+      this.moveFocus(() => {
+        view.field.blur();
+        view.field.focus({ preventScroll: true });
+      });
     }
     this.core.composition(id, "", -1, -1);
   }
 
   focus(id) {
-    this.views.get(id)?.keyboardTarget().focus({ preventScroll: true });
+    const view = this.views.get(id);
+    if (view) this.moveFocus(() => view.keyboardTarget().focus({ preventScroll: true }));
+  }
+
+  /** Moves the focus for the guest: what that changes is not the user's doing. */
+  moveFocus(move) {
+    const outer = this.movingFocus;
+    this.movingFocus = true;
+    try {
+      move();
+    } finally {
+      this.movingFocus = outer;
+    }
   }
 
   /**
-   * The guest asks to be told to redraw a window. `whileDrawing`: it asks
-   * while still drawing the frame it was last told to draw.
+   * The guest asks to be told to redraw a window. `whileDrawing`: the host
+   * saw it ask before it waited for events again, after it read its last
+   * redraw of the window.
    */
   requestRedraw(id, whileDrawing = false) {
     const view = this.views.get(id);
-    if (!view || view.redrawAsked) return;
-    view.redrawAsked = true;
+    if (!view) return;
     // With `eagerRedraw`, a request that answers something the user did is
     // answered at once (after the call that made it, not inside it). The
     // browser's next frame is then mostly a whole frame away: the one in
     // which the input came has already run its callbacks when the guest
-    // asks. A guest that draws frame after frame keeps to the frames, even
-    // while the user does something, and so does a window nobody can see.
-    if (
+    // asks. A request with no input since the last redraw keeps to the
+    // frames, so a guest that draws frame after frame on its own does,
+    // however long its frames take. So does one the host saw ask while
+    // still drawing, and a window nobody can see.
+    const eager =
       this.options.eagerRedraw === true &&
       !view.occluded &&
       view.inputSinceRedraw &&
-      !whileDrawing
-    ) {
-      queueMicrotask(() => {
-        if (view.redrawAsked) this.deliverRedraw(view);
-      });
+      !whileDrawing;
+    if (view.redrawAsked) {
+      // Waiting for a frame for a request that answered nothing the user
+      // did: this one does, and answers both.
+      if (eager && view.redrawFrame !== undefined) {
+        this.window.cancelAnimationFrame?.(view.redrawFrame);
+        view.redrawFrame = undefined;
+        this.deliverSoon(view);
+      }
+      return;
+    }
+    view.redrawAsked = true;
+    if (eager) {
+      this.deliverSoon(view);
     } else if (typeof this.window.requestAnimationFrame === "function") {
       view.redrawFrame = this.window.requestAnimationFrame(() => this.deliverRedraw(view));
     } else {
       this.deliverRedraw(view);
     }
+  }
+
+  /** Answers a window's request after the call that made it. */
+  deliverSoon(view) {
+    queueMicrotask(() => {
+      if (view.redrawAsked && view.redrawFrame === undefined) this.deliverRedraw(view);
+    });
   }
 
   /**
@@ -1102,6 +1138,7 @@ class GuiPage {
     const focused = holder !== null && (holder === view.canvas || holder === view.field);
     if (focused === view.focused) return;
     view.focused = focused;
+    if (!this.movingFocus) this.noteInput(view);
     if (!focused) {
       view.typedByKey = "";
       if (view.composing) {
@@ -1443,12 +1480,18 @@ function randomName() {
  * - `manageCanvasSize`: `false` leaves `canvas.width` and `height` alone.
  * - `eagerRedraw`: `true` answers a window's request to redraw at once,
  *   instead of at the browser's next frame, when the user did something to
- *   the window since its last redraw. That frame is usually most of a frame
+ *   the window since its last redraw (a key, the pointer, the wheel, text,
+ *   a paste, or moving the focus). That frame is usually most of a frame
  *   away when the request answers what the user did, so it is shown about a
- *   frame sooner. A request the guest makes while still drawing the frame it
- *   was last told to draw keeps to the frames, so a guest that draws frame
- *   after frame does, however long its frames take; so does a window nobody
- *   can see. Off by default.
+ *   frame sooner. A request already waiting for a frame is answered then
+ *   too. Without input since the last redraw, requests keep to the frames:
+ *   a guest drawing frame after frame on its own does, however long its
+ *   frames take. While the user does something, the host keeps a request
+ *   to the frames when the guest made it before waiting for events again
+ *   since it read its last redraw. A guest that waits between its frames,
+ *   or draws on one thread and waits on another, may then be answered at
+ *   once after each input. A window nobody can see waits for the frames.
+ *   Off by default.
  * - `document`: the document, when it is not `globalThis.document`.
  */
 export function createGuiPage(core, options) {
