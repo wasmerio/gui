@@ -252,6 +252,9 @@ pub(crate) struct WindowShared {
     pub(crate) closed: AtomicBool,
     /// A text entry session is on.
     pub(crate) text_input: AtomicBool,
+    /// [`InstanceShared::waits`] when the guest was last handed a
+    /// `WindowRedrawRequested` of the window; `u64::MAX` for never.
+    pub(crate) redrawn_at_wait: AtomicU64,
     resize: Slot,
     moved: Slot,
     wheel: Slot,
@@ -266,6 +269,7 @@ impl Default for WindowShared {
             snapshot: Snapshot::default(),
             closed: AtomicBool::new(false),
             text_input: AtomicBool::new(false),
+            redrawn_at_wait: AtomicU64::new(u64::MAX),
             resize: Slot::new(),
             moved: Slot::new(),
             wheel: Slot::new(),
@@ -509,6 +513,8 @@ pub(crate) struct InstanceShared {
     pub(crate) focused_windows: AtomicU32,
     /// Threads inside `wguiInstanceWaitEvents`.
     pub(crate) waiting: AtomicU32,
+    /// Calls of `wguiInstanceWaitEvents` so far.
+    pub(crate) waits: AtomicU64,
     /// Records delivered so far.
     pub(crate) delivered: AtomicU64,
     consumer: Mutex<Consumer>,
@@ -546,6 +552,7 @@ impl InstanceShared {
             paste_stamp: AtomicU64::new(u64::MAX),
             focused_windows: AtomicU32::new(0),
             waiting: AtomicU32::new(0),
+            waits: AtomicU64::new(0),
             delivered: AtomicU64::new(0),
             consumer: Mutex::new(Consumer::default()),
             windows: Mutex::new(Vec::new()),
@@ -708,6 +715,24 @@ impl InstanceShared {
         }
     }
 
+    /// Notes that the guest was handed a redraw of a window: until it next
+    /// waits for events, it is drawing that window's frame.
+    fn handed_redraw(&self, window: Handle) {
+        let waits = self.waits.load(Ordering::Acquire);
+        if let Some(window) = lock(&self.windows)
+            .iter()
+            .find(|shared| shared.handle() == window)
+        {
+            window.redrawn_at_wait.store(waits, Ordering::Release);
+        }
+    }
+
+    /// Whether the guest is still drawing the frame it was last told to draw
+    /// of a window: it has not waited for events since it was handed it.
+    pub(crate) fn drawing(&self, window: &WindowShared) -> bool {
+        window.redrawn_at_wait.load(Ordering::Acquire) == self.waits.load(Ordering::Acquire)
+    }
+
     /// Encodes as many whole records as fit `capacity` bytes, oldest first.
     pub(crate) fn poll(&self, capacity: usize) -> Vec<u8> {
         let mut consumer = lock(&self.consumer);
@@ -749,6 +774,9 @@ impl InstanceShared {
             consumer.last_time = header.timestamp;
             if matches!(queued.event, Event::RequestCompleted(_)) {
                 update(&self.owed, |owed| owed.checked_sub(1));
+            }
+            if matches!(queued.event, Event::WindowRedrawRequested) {
+                self.handed_redraw(queued.window);
             }
             self.delivered.fetch_add(1, Ordering::AcqRel);
         }

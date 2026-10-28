@@ -488,7 +488,7 @@ impl HostWindow for Window {
                 window.take_focus();
             }
             WindowChange::Attention(level) => window.note(format!("attention {level:?}")),
-            WindowChange::Redraw => {
+            WindowChange::Redraw { .. } => {
                 window.note("redraw".to_owned());
                 match window.system.upgrade() {
                     Some(system) if system.options.redraws == HeadlessRedraws::Paced => {
