@@ -165,6 +165,21 @@ What the user does on a canvas reaches a guest that waits for it through the
 embedder's shared memory, without a message and without JSPI. See
 `docs/architecture.md`.
 
+A guest that waits for input blocks its worker meanwhile, and with it
+whatever else completes there, such as WebGPU's callbacks. An embedder that
+enters its guests with `Function::call_async` can let the wait suspend
+instead, and hand the context's waker to that other work. Where the engine
+has no JSPI or no `Atomics.waitAsync`, waits block as before; a guest
+entered synchronously traps at its first wait.
+
+```rust
+let gui = GuiCtx::builder()
+    .window_system(Arc::new(windows))
+    .suspending_waits(true)
+    .build();
+let wake = gui.event_waker(); // for wasmer-webgpu's event waker, say
+```
+
 ## Layout
 
 | | |

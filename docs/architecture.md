@@ -161,6 +161,14 @@ and the sink writes a record into the queue and wakes the guest's worker
 where it sleeps in `wguiInstanceWaitEvents`. No message is posted, and the
 guest needs no JSPI to wait.
 
+That sleep blocks the worker, though, and whatever else lives in it waits
+too: WebGPU's callbacks, messages, timers. An embedder that enters its guests
+through JSPI (`Function::call_async`) can let the wait suspend instead
+(`GuiCtxBuilder::suspending_waits`, `host::web_wait`). The guest then waits
+with `Atomics.waitAsync` on a counter that every notification of its
+instance bumps: input still reaches it without a message, and work done in
+the worker ends the wait through `GuiCtx::event_waker`.
+
 The other direction does post a message, a single empty one: a worker that
 queued a command asks the page to look at the queue. The page half carries
 the command out on the canvas and reports what came of it the same way as

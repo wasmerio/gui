@@ -1845,6 +1845,103 @@ fn a_waiting_guest_is_stopped_when_its_scope_closes() {
 }
 
 #[test]
+fn one_look_at_a_wait_says_why_it_is_over_or_how_long_to_sleep() {
+    use super::instance::{WaitStep, wait_step};
+    use crate::abi::AbiError;
+    use std::time::Duration;
+    let rig = Rig::new();
+    let (_, user) = rig.window();
+    let shared = rig.shared();
+    let running = || false;
+    let stopping = || true;
+    let now = crate::clock::now;
+    // Nothing yet: a check is over at once, and a wait sleeps no longer than
+    // it may last, nor than a slice.
+    let step = wait_step(&shared, &running, now(), Some(Duration::ZERO));
+    assert!(matches!(step, WaitStep::Done(Ok(0))));
+    let step = wait_step(&shared, &running, now(), Some(Duration::from_millis(5)));
+    assert!(matches!(step, WaitStep::Sleep(slice) if slice <= Duration::from_millis(5)));
+    let step = wait_step(&shared, &running, now(), None);
+    assert!(matches!(step, WaitStep::Sleep(super::instance::WAIT_SLICE)));
+    // Input and a wake both end it and are both said, even to a guest that
+    // is being stopped. The wake is used up; the input stays until it is read.
+    user.key(key(PhysicalKey::KeyA, true));
+    shared.wait.wake();
+    let step = wait_step(&shared, &stopping, now(), None);
+    assert!(matches!(step, WaitStep::Done(Ok(why))
+        if why == wait_reasons::EVENTS | wait_reasons::WOKEN));
+    let step = wait_step(&shared, &running, now(), None);
+    assert!(matches!(step, WaitStep::Done(Ok(wait_reasons::EVENTS))));
+    rig.events();
+    // With nothing owed, a guest being stopped is stopped, and one whose
+    // instance went is handed back.
+    let step = wait_step(&shared, &stopping, now(), None);
+    assert!(matches!(step, WaitStep::Done(Err(AbiError::Stopped))));
+    rig.call(|host, cx| host.instance_destroy(cx, rig.instance));
+    let step = wait_step(&shared, &running, now(), None);
+    assert!(matches!(
+        step,
+        WaitStep::Done(Ok(wait_reasons::INTERRUPTED))
+    ));
+}
+
+#[test]
+fn what_ends_a_wait_changes_the_counter_a_suspended_wait_sleeps_on() {
+    // The browser's suspending wait reads the counter, looks, and then sleeps
+    // until the counter changes (`web_wait`). Whatever would end the wait
+    // after the look has to change it, or the wait sleeps through it.
+    use super::instance::{WaitStep, wait_step};
+    let rig = Rig::new();
+    let (_, user) = rig.window();
+    let shared = rig.shared();
+    let running = || false;
+    let look = || {
+        let seen = shared.wait.epoch();
+        let step = wait_step(&shared, &running, crate::clock::now(), None);
+        (seen, step)
+    };
+    let ctx = GuiCtx {
+        inner: Arc::clone(&rig.host().ctx),
+    };
+    let external = ctx.event_waker();
+
+    let (seen, step) = look();
+    assert!(matches!(step, WaitStep::Sleep(_)));
+    std::thread::spawn(move || external())
+        .join()
+        .expect("joins");
+    assert_ne!(shared.wait.epoch(), seen, "a wake from outside");
+    assert!(matches!(look().1, WaitStep::Done(Ok(wait_reasons::WOKEN))));
+
+    let (seen, _) = look();
+    rig.call(|host, cx| host.instance_wake(cx, rig.instance))
+        .expect("no fault");
+    assert_ne!(shared.wait.epoch(), seen, "wguiInstanceWake");
+    assert!(matches!(look().1, WaitStep::Done(Ok(wait_reasons::WOKEN))));
+
+    let (seen, _) = look();
+    user.key(key(PhysicalKey::KeyA, true));
+    assert_ne!(shared.wait.epoch(), seen, "input");
+    assert!(matches!(look().1, WaitStep::Done(Ok(wait_reasons::EVENTS))));
+    rig.events();
+
+    let (seen, step) = look();
+    assert!(matches!(step, WaitStep::Sleep(_)));
+    rig.call(|host, cx| host.instance_destroy(cx, rig.instance));
+    assert_ne!(shared.wait.epoch(), seen, "the instance destroyed");
+    assert!(matches!(
+        look().1,
+        WaitStep::Done(Ok(wait_reasons::INTERRUPTED))
+    ));
+
+    let rig = Rig::new();
+    let shared = rig.shared();
+    let seen = shared.wait.epoch();
+    rig.scope.close();
+    assert_ne!(shared.wait.epoch(), seen, "the scope closed");
+}
+
+#[test]
 fn a_kill_shows_on_the_guest_s_memory() {
     // What WASIX does to the memory of a process it kills.
     let mut store = Store::default();

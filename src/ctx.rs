@@ -137,6 +137,7 @@ pub struct GuiCtxBuilder {
     limits: GuiLimits,
     policy: GuiPolicy,
     system: Option<Arc<dyn WindowSystem>>,
+    suspending_waits: bool,
 }
 
 impl GuiCtxBuilder {
@@ -164,12 +165,47 @@ impl GuiCtxBuilder {
         self
     }
 
+    /// Lets a guest that waits for input (`wguiInstanceWaitEvents`) suspend
+    /// instead of blocking its thread, where it runs in a browser. Off by
+    /// default.
+    ///
+    /// In a browser a guest's thread is a Worker, and a wait blocks it:
+    /// nothing else in that Worker runs until the wait ends, so a program
+    /// that idles there sees its WebGPU completions, messages and timers
+    /// only when the wait times out. A wait that suspends leaves the
+    /// Worker's event loop running: the guest suspends through JSPI until
+    /// its instance is notified (`Atomics.waitAsync`) or the time is up.
+    /// Work that completes in the Worker ends the wait through
+    /// [`GuiCtx::event_waker`].
+    ///
+    /// It takes effect in a build for the browser (the `js` feature, on
+    /// `wasm32`) whose JavaScript engine has JSPI (`WebAssembly.Suspending`
+    /// and `WebAssembly.promising`) and `Atomics.waitAsync`, with the memory
+    /// shared. Anywhere else, natively too, it changes nothing: waits block
+    /// as before.
+    ///
+    /// Where it takes effect, the embedder must enter its guests through
+    /// `Function::call_async`, as a WASIX runtime does for a program it runs
+    /// with asynchronous threading, unless the program uses Asyncify. A
+    /// guest entered synchronously cannot suspend: its first wait traps.
+    ///
+    /// What ends a program in its wait (a WASIX exit, a signal it has no
+    /// handler for) reaches the runtime only as its message, for now:
+    /// Wasmer's asynchronous host functions in JavaScript pass a failure on
+    /// as its text. The runtime then reports the program as failed, rather
+    /// than with its exit code.
+    pub fn suspending_waits(mut self, suspend: bool) -> Self {
+        self.suspending_waits = suspend;
+        self
+    }
+
     pub fn build(self) -> GuiCtx {
         GuiCtx {
             inner: Arc::new(CtxInner {
                 limits: self.limits,
                 policy: self.policy,
                 system: self.system.unwrap_or_else(default_system),
+                suspending_waits: self.suspending_waits,
                 stopped: AtomicBool::new(false),
                 scopes: Mutex::new(Vec::new()),
                 implicit: OnceLock::new(),
@@ -182,6 +218,8 @@ pub(crate) struct CtxInner {
     pub(crate) limits: GuiLimits,
     pub(crate) policy: GuiPolicy,
     pub(crate) system: Arc<dyn WindowSystem>,
+    /// See [`GuiCtxBuilder::suspending_waits`].
+    pub(crate) suspending_waits: bool,
     pub(crate) stopped: AtomicBool,
     /// Every scope made from this context, for [`GuiCtx::usage`] and
     /// [`GuiRuntimeControl::terminate_all`].
@@ -210,6 +248,7 @@ impl std::fmt::Debug for CtxInner {
         f.debug_struct("GuiCtx")
             .field("limits", &self.limits)
             .field("policy", &self.policy)
+            .field("suspending_waits", &self.suspending_waits)
             .finish_non_exhaustive()
     }
 }
@@ -245,6 +284,10 @@ impl GuiCtx {
     /// of a store, and takes the context's locks only for a moment. It holds
     /// only a weak reference to the context: work that outlives the context
     /// can't keep it alive, and calling it then does nothing.
+    ///
+    /// In a browser, work that completes in a guest's own Worker only gets
+    /// to run, and to call this, while the guest's wait leaves the Worker
+    /// free: see [`GuiCtxBuilder::suspending_waits`].
     pub fn event_waker(&self) -> Arc<dyn Fn() + Send + Sync> {
         let context = Arc::downgrade(&self.inner);
         Arc::new(move || {
@@ -260,6 +303,13 @@ impl GuiCtx {
 
     pub fn policy(&self) -> &GuiPolicy {
         &self.inner.policy
+    }
+
+    /// Whether the embedder lets guests wait by suspending
+    /// ([`GuiCtxBuilder::suspending_waits`]). That is what was asked: where
+    /// waits cannot suspend, they block all the same.
+    pub fn suspending_waits(&self) -> bool {
+        self.inner.suspending_waits
     }
 
     /// A new scope: the unit an embedder stops as one.
@@ -500,6 +550,10 @@ impl GuiRuntimeHooks {
         let env = FunctionEnv::new(store, data);
         let mut exports = Exports::new();
         crate::abi::api::register(store, &env, &mut exports);
+        #[cfg(all(target_arch = "wasm32", feature = "js"))]
+        if self.host.ctx.suspending_waits {
+            crate::host::web_wait::install(store, &env, &mut exports);
+        }
         // A guest built against a newer header may import functions this
         // build does not have. It still starts: each gets a stub.
         for import in module.imports() {
@@ -839,6 +893,23 @@ mod tests {
         drop(ctx);
         assert!(weak.upgrade().is_none());
         wake(); // A late backend completion is harmless.
+    }
+
+    #[test]
+    fn suspending_waits_are_off_unless_asked_for_and_change_nothing_natively() {
+        assert!(!GuiCtx::default().suspending_waits());
+        let ctx = GuiCtx::builder().suspending_waits(true).build();
+        assert!(ctx.suspending_waits());
+        // Natively there is nothing to suspend on: a guest gets the imports
+        // it always gets, and they answer as they always do.
+        let mut store = Store::default();
+        let module = compile(&store, EVENT_LOOP);
+        let instance = instantiate(&mut store, &ctx.runtime_hooks(), &module);
+        for name in ["create", "wait"] {
+            let function = instance.exports.get_function(name).expect("exported");
+            let status = function.call(&mut store, &[]).expect("does not trap");
+            assert_eq!(status[..], [Value::I32(1)], "{name}");
+        }
     }
 
     #[test]

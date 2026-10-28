@@ -5,9 +5,12 @@
 //! tab if it spun on a lock whose holder was terminated. So nothing here
 //! takes one. Waiters register in a lock-free list and park; a producer
 //! empties the list and unparks.
+//!
+//! A guest in a browser may instead wait by suspending (`super::web_wait`):
+//! then it waits on a counter that every notification bumps.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::thread::Thread;
 use std::time::Duration;
 
@@ -38,6 +41,12 @@ pub(crate) struct WaitSet {
     waiters: SegQueue<Arc<Waiter>>,
     /// `wguiInstanceWake` was called and no wait has consumed it yet.
     woken: AtomicBool,
+    /// Bumped by every notification, before anyone is woken. A wait that
+    /// suspends instead of parking (`super::web_wait`) reads it before it
+    /// looks for what would end it, then waits for it to change: a
+    /// notification after that read has changed it, so the wait cannot sleep
+    /// through it.
+    epoch: AtomicU32,
 }
 
 impl Default for WaitSet {
@@ -47,13 +56,18 @@ impl Default for WaitSet {
             id: NEXT.fetch_add(1, Ordering::Relaxed),
             waiters: SegQueue::new(),
             woken: AtomicBool::new(false),
+            epoch: AtomicU32::new(0),
         }
     }
 }
 
 impl WaitSet {
-    /// Wakes every thread parked here. Lock-free.
+    /// Wakes every thread parked here, and every wait suspended here.
+    /// Lock-free.
     pub(crate) fn notify(&self) {
+        self.epoch.fetch_add(1, Ordering::SeqCst);
+        #[cfg(all(target_arch = "wasm32", feature = "js"))]
+        super::web_wait::notify(self.epoch_address());
         while let Some(waiter) = self.waiters.pop() {
             // Unless it has gone to wait somewhere else since: then it is
             // in that list, and this only wakes it for nothing.
@@ -73,6 +87,18 @@ impl WaitSet {
     /// Whether a wake is pending; it is consumed.
     pub(crate) fn take_wake(&self) -> bool {
         self.woken.swap(false, Ordering::AcqRel)
+    }
+
+    /// The notification counter (see `epoch`) as it is now.
+    #[cfg(any(test, all(target_arch = "wasm32", feature = "js")))]
+    pub(crate) fn epoch(&self) -> u32 {
+        self.epoch.load(Ordering::SeqCst)
+    }
+
+    /// Where the notification counter is in this module's memory.
+    #[cfg(all(target_arch = "wasm32", feature = "js"))]
+    pub(crate) fn epoch_address(&self) -> u32 {
+        self.epoch.as_ptr() as u32
     }
 
     /// Parks the calling thread for at most `slice`, unless `ready` holds.
