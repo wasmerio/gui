@@ -99,6 +99,12 @@ impl Default for HeadlessOptions {
 /// The id of the one display.
 const DISPLAY: u64 = 1;
 
+/// Makes the display threads started from now on wait for each refresh with
+/// a plain sleep, as where the strict timer cannot be made: for the
+/// `frame_pacing` measurement's comparison.
+#[cfg(all(test, target_os = "macos"))]
+pub(crate) static SLEEP_FOR_REFRESH: AtomicBool = AtomicBool::new(false);
+
 #[derive(Default)]
 struct Clipboard {
     items: Vec<ClipboardData>,
@@ -187,6 +193,8 @@ impl Inner {
             let thread = std::thread::current();
             move || thread.unpark()
         });
+        #[cfg(all(test, target_os = "macos"))]
+        let timer = timer.filter(|_| !SLEEP_FOR_REFRESH.load(Ordering::Relaxed));
         loop {
             let Some(inner) = system.upgrade() else {
                 return;
