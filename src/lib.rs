@@ -23,6 +23,8 @@ pub mod cli;
 mod clock;
 mod ctx;
 mod env;
+#[cfg(target_os = "macos")]
+mod macos_deadline;
 // Windows nobody sees are for tests, servers and streams: not for a page.
 #[cfg(not(target_arch = "wasm32"))]
 pub mod headless;

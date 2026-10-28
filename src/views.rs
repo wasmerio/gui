@@ -728,7 +728,12 @@ mod tests {
             ViewCommand::Change { view, change } => {
                 let what = match change {
                     WindowChange::Title(title) => format!("title {title:?}"),
-                    WindowChange::Redraw => "redraw".to_owned(),
+                    WindowChange::Redraw { while_drawing } => {
+                        format!(
+                            "redraw{}",
+                            if while_drawing { " while drawing" } else { "" }
+                        )
+                    }
                     WindowChange::Fullscreen { options, request } => {
                         kept.requests.push(request);
                         format!("fullscreen {}", options.is_some())
@@ -840,6 +845,56 @@ mod tests {
             sink.key(key(PhysicalKey::KeyA, false));
         });
         assert_eq!(rig.names(), ["WindowFocusGained", "KeyDown", "KeyUp"]);
+    }
+
+    #[test]
+    fn a_redraw_asked_for_while_drawing_the_last_one_says_so() {
+        let interface = Interface::new(Answering::Views(100, 100), ViewOptions::default());
+        let rig = interface.rig();
+        let window = open(&rig).expect("a window");
+        let ask = || {
+            let status = rig.call(|host, cx| host.window_request_redraw(cx, window));
+            assert_eq!(status, Ok(Status::Success));
+        };
+        let wait = || {
+            let status = rig
+                .call(|host, cx| host.instance_wait_events(cx, rig.instance, 0, OutPtr::new(OUT)));
+            assert_eq!(status, Ok(Status::Success));
+        };
+        let told = |interface: &Interface| {
+            interface.report(1, |sink| sink.redraw_requested());
+        };
+        let redrawn = || {
+            rig.names()
+                .iter()
+                .any(|name| name == "WindowRedrawRequested")
+        };
+
+        // Never told to draw.
+        ask();
+        // Told to draw, and asking again before it waits for events.
+        told(&interface);
+        assert!(redrawn());
+        ask();
+        // Once it has waited, even without blocking, it is done drawing.
+        wait();
+        ask();
+        // A redraw it was told of but has not read yet does not count...
+        told(&interface);
+        ask();
+        // ...until it reads it.
+        assert!(redrawn());
+        ask();
+        assert_eq!(
+            interface.until_asked(7)[2..],
+            [
+                "change 1: redraw",
+                "change 1: redraw while drawing",
+                "change 1: redraw",
+                "change 1: redraw",
+                "change 1: redraw while drawing",
+            ]
+        );
     }
 
     #[test]

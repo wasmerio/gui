@@ -197,6 +197,9 @@ async fn wait_events(
                         let Some(live) = host.instance(instance) else {
                             return Ok(Status::InvalidHandle);
                         };
+                        // A wait for events, as far as `while_drawing` goes
+                        // (`InstanceShared::drawing`), as in the parking wait.
+                        live.shared.waits.fetch_add(1, Ordering::AcqRel);
                         live.shared.waiting.fetch_add(1, Ordering::AcqRel);
                         waiting = Some(Waiting(Arc::clone(&live.shared)));
                     }

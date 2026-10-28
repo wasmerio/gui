@@ -367,7 +367,12 @@ impl WindowApi for Host {
     }
 
     fn window_request_redraw(&self, _cx: &mut Cx<'_>, window: Handle) -> AbiResult<Status> {
-        Ok(self.change(window, WindowChange::Redraw))
+        let Some(state) = self.window(window) else {
+            return Ok(Status::InvalidHandle);
+        };
+        let while_drawing = state.instance.drawing(&state.shared);
+        state.apply(WindowChange::Redraw { while_drawing });
+        Ok(Status::Success)
     }
 
     fn window_set_cursor_shape(

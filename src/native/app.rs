@@ -176,6 +176,12 @@ pub(super) struct App {
     /// what guests ask for waits.
     ready: bool,
     closed_by_user: bool,
+    /// Wakes the loop when the next redraw held back for a window that can
+    /// be seen is due: on macOS the loop's own timer can be milliseconds
+    /// late. What the timer calls holds `shared` only weakly, and may still
+    /// be running when this is dropped.
+    #[cfg(target_os = "macos")]
+    redraw_waker: Option<crate::macos_deadline::Deadline>,
     /// Shows the frames guests draw themselves, from the first one on.
     #[cfg(feature = "pixels")]
     painter: Option<super::pixels::Painter>,
@@ -183,6 +189,18 @@ pub(super) struct App {
 
 impl App {
     pub(super) fn new(shared: Arc<Shared>) -> Self {
+        // On a thread of libdispatch's: it only wakes the loop.
+        #[cfg(target_os = "macos")]
+        let redraw_waker = crate::macos_deadline::Deadline::new({
+            let shared = Arc::downgrade(&shared);
+            move || {
+                if let Some(shared) = shared.upgrade()
+                    && let super::Link::Running(proxy) = &*lock(&shared.link)
+                {
+                    let _ = proxy.send_event(());
+                }
+            }
+        });
         Self {
             shared,
             windows: HashMap::new(),
@@ -191,6 +209,8 @@ impl App {
             monitors: Vec::new(),
             ready: false,
             closed_by_user: false,
+            #[cfg(target_os = "macos")]
+            redraw_waker,
             #[cfg(feature = "pixels")]
             painter: None,
         }
@@ -460,10 +480,10 @@ impl App {
                 AttentionLevel::Critical => Some(UserAttentionType::Critical),
             }),
             // A window out of sight is told to redraw when it is seen again.
-            WindowChange::Redraw if entry.unseen => {}
+            WindowChange::Redraw { .. } if entry.unseen => {}
             // Already waiting for the display: one redraw answers both.
-            WindowChange::Redraw if entry.redraw_due.is_some() => {}
-            WindowChange::Redraw => {
+            WindowChange::Redraw { .. } if entry.redraw_due.is_some() => {}
+            WindowChange::Redraw { .. } => {
                 let (tick, held) =
                     next_refresh(entry.redraw_tick, Instant::now(), frame_interval(&window));
                 entry.redraw_tick = Some(tick);
@@ -652,6 +672,10 @@ impl ApplicationHandler<()> for App {
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.ready = false;
+        #[cfg(target_os = "macos")]
+        if let Some(waker) = &self.redraw_waker {
+            waker.arm(None);
+        }
         for instance in self.instances() {
             instance.suspended();
         }
@@ -844,6 +868,8 @@ impl ApplicationHandler<()> for App {
         let mut sooner = |deadline: Instant| {
             next = Some(next.map_or(deadline, |other| other.min(deadline)));
         };
+        #[cfg(target_os = "macos")]
+        let mut redraw_next: Option<Instant> = None;
         // Redraws that were asked for before the display was ready.
         for entry in self.windows.values_mut() {
             match entry.redraw_due {
@@ -852,9 +878,21 @@ impl ApplicationHandler<()> for App {
                     entry.redraw_due = None;
                     entry.window.request_redraw();
                 }
-                Some(due) => sooner(due),
+                Some(due) => {
+                    sooner(due);
+                    // Shown, and in sight: the redraws of windows out of
+                    // sight were let go of above.
+                    #[cfg(target_os = "macos")]
+                    if self.ready && entry.shown {
+                        redraw_next = Some(redraw_next.map_or(due, |other| other.min(due)));
+                    }
+                }
                 None => {}
             }
+        }
+        #[cfg(target_os = "macos")]
+        if let Some(waker) = &self.redraw_waker {
+            waker.arm(redraw_next);
         }
         // A window the user asked to close, whose guest has read nothing
         // since, belongs to a guest that is stuck.

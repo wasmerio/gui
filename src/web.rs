@@ -76,7 +76,7 @@ extern "C" {
     #[wasm_bindgen(method)]
     fn focus(this: &GuiPage, view: f64);
     #[wasm_bindgen(method, js_name = requestRedraw)]
-    fn request_redraw(this: &GuiPage, view: f64);
+    fn request_redraw(this: &GuiPage, view: f64, while_drawing: bool);
     #[wasm_bindgen(method, js_name = setDefaultActions)]
     fn set_default_actions(this: &GuiPage, view: f64, actions: u32);
     #[wasm_bindgen(method, js_name = presentPixels)]
@@ -509,7 +509,7 @@ fn change_view(scope: u32, js: &GuiPage, view: ViewId, change: WindowChange) {
             js.set_fullscreen(id, on, request, wait);
         }
         WindowChange::Focus => js.focus(id),
-        WindowChange::Redraw => js.request_redraw(id),
+        WindowChange::Redraw { while_drawing } => js.request_redraw(id, while_drawing),
         WindowChange::CursorShape(shape) => js.set_cursor_shape(id, shape.as_u32()),
         WindowChange::CustomCursor(None) => {
             js.set_custom_cursor(id, &JsValue::NULL, 0, 0, 0, 0, 1.0);

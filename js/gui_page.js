@@ -190,6 +190,8 @@ class View {
     this.cursor = "";
     this.cursorVisible = true;
     this.redrawAsked = false;
+    /** The user did something to the window since the guest was last told to redraw it. */
+    this.inputSinceRedraw = false;
     this.locked = false;
     // The text field that stands in for the canvas while text is entered.
     this.field = null;
@@ -252,6 +254,8 @@ class GuiPage {
     this.pasted = { text: null, at: -Infinity };
     this.installed = false;
     this.pointerValues = new Float64Array(POINTER.Length);
+    /** The page is moving the focus for the guest (see `moveFocus`). */
+    this.movingFocus = false;
   }
 
   // -- what the guest asks for --------------------------------------------------
@@ -501,7 +505,9 @@ class GuiPage {
       if (!view.field) return;
       // The canvas takes the keyboard back before the field goes, so that
       // the window never is without it in between.
-      if (this.document.activeElement === view.field) view.canvas.focus({ preventScroll: true });
+      if (this.document.activeElement === view.field) {
+        this.moveFocus(() => view.canvas.focus({ preventScroll: true }));
+      }
       this.removeField(view);
       view.textInput = null;
       this.core.textState(id, false, false);
@@ -517,7 +523,7 @@ class GuiPage {
     // The field takes the keyboard from the canvas, and with it the focus
     // the window already had.
     if (view.focused || this.document.activeElement === view.canvas) {
-      field.focus({ preventScroll: true });
+      this.moveFocus(() => field.focus({ preventScroll: true }));
     }
     if (created) this.core.textState(id, true, false);
   }
@@ -531,30 +537,93 @@ class GuiPage {
     view.field.value = "";
     // The only way a page has of telling an input method to start over.
     if (this.document.activeElement === view.field) {
-      view.field.blur();
-      view.field.focus({ preventScroll: true });
+      this.moveFocus(() => {
+        view.field.blur();
+        view.field.focus({ preventScroll: true });
+      });
     }
     this.core.composition(id, "", -1, -1);
   }
 
   focus(id) {
-    this.views.get(id)?.keyboardTarget().focus({ preventScroll: true });
+    const view = this.views.get(id);
+    if (view) this.moveFocus(() => view.keyboardTarget().focus({ preventScroll: true }));
   }
 
-  requestRedraw(id) {
-    const view = this.views.get(id);
-    if (!view || view.redrawAsked) return;
-    view.redrawAsked = true;
-    const redraw = () => {
-      view.redrawAsked = false;
-      view.redrawFrame = undefined;
-      if (this.views.get(id) === view) this.core.redraw(id);
-    };
-    if (typeof this.window.requestAnimationFrame === "function") {
-      view.redrawFrame = this.window.requestAnimationFrame(redraw);
-    } else {
-      redraw();
+  /** Moves the focus for the guest: what that changes is not the user's doing. */
+  moveFocus(move) {
+    const outer = this.movingFocus;
+    this.movingFocus = true;
+    try {
+      move();
+    } finally {
+      this.movingFocus = outer;
     }
+  }
+
+  /**
+   * The guest asks to be told to redraw a window. `whileDrawing`: the host
+   * saw it ask before it waited for events again, after it read its last
+   * redraw of the window.
+   */
+  requestRedraw(id, whileDrawing = false) {
+    const view = this.views.get(id);
+    if (!view) return;
+    // With `eagerRedraw`, a request that answers something the user did is
+    // answered at once (after the call that made it, not inside it). The
+    // browser's next frame is then mostly a whole frame away: the one in
+    // which the input came has already run its callbacks when the guest
+    // asks. A request with no input since the last redraw keeps to the
+    // frames, so a guest that draws frame after frame on its own does,
+    // however long its frames take. So does one the host saw ask while
+    // still drawing, and a window nobody can see.
+    const eager =
+      this.options.eagerRedraw === true &&
+      !view.occluded &&
+      view.inputSinceRedraw &&
+      !whileDrawing;
+    if (view.redrawAsked) {
+      // Waiting for a frame for a request that answered nothing the user
+      // did: this one does, and answers both.
+      if (eager && view.redrawFrame !== undefined) {
+        this.window.cancelAnimationFrame?.(view.redrawFrame);
+        view.redrawFrame = undefined;
+        this.deliverSoon(view);
+      }
+      return;
+    }
+    view.redrawAsked = true;
+    if (eager) {
+      this.deliverSoon(view);
+    } else if (typeof this.window.requestAnimationFrame === "function") {
+      view.redrawFrame = this.window.requestAnimationFrame(() => this.deliverRedraw(view));
+    } else {
+      this.deliverRedraw(view);
+    }
+  }
+
+  /** Answers a window's request after the call that made it. */
+  deliverSoon(view) {
+    queueMicrotask(() => {
+      if (view.redrawAsked && view.redrawFrame === undefined) this.deliverRedraw(view);
+    });
+  }
+
+  /**
+   * Tells the guest to redraw a window, which answers the request it has
+   * waiting, if any.
+   */
+  deliverRedraw(view) {
+    if (view.redrawFrame !== undefined) this.window.cancelAnimationFrame?.(view.redrawFrame);
+    view.redrawFrame = undefined;
+    view.redrawAsked = false;
+    view.inputSinceRedraw = false;
+    if (this.views.get(view.id) === view) this.core.redraw(view.id);
+  }
+
+  /** The user did something to a window. */
+  noteInput(view) {
+    view.inputSinceRedraw = true;
   }
 
   setDefaultActions(id, actions) {
@@ -862,7 +931,7 @@ class GuiPage {
     view.occluded = occluded;
     this.core.flags(view.id, FLAG_OCCLUDED, occluded ? FLAG_OCCLUDED : 0);
     // What was drawn while nobody could see it went nowhere.
-    if (!occluded) this.core.redraw(view.id);
+    if (!occluded) this.deliverRedraw(view);
   }
 
   applyCursor(view) {
@@ -1040,6 +1109,7 @@ class GuiPage {
       "wheel",
       (event) => {
         if (view.actions & DefaultActions.Wheel) event.preventDefault();
+        this.noteInput(view);
         const [x, y] = view.position(event);
         const [ratioX, ratioY] = view.ratio();
         // Lines stay lines; pixels are the page's, and become the canvas's.
@@ -1068,6 +1138,7 @@ class GuiPage {
     const focused = holder !== null && (holder === view.canvas || holder === view.field);
     if (focused === view.focused) return;
     view.focused = focused;
+    if (!this.movingFocus) this.noteInput(view);
     if (!focused) {
       view.typedByKey = "";
       if (view.composing) {
@@ -1079,6 +1150,7 @@ class GuiPage {
   }
 
   key(view, event, pressed) {
+    this.noteInput(view);
     // Chrome marks the events an input method swallows; Firefox and Safari
     // report key 229 for them.
     const composing = event.isComposing || event.keyCode === 229 || view.composing;
@@ -1126,6 +1198,7 @@ class GuiPage {
   }
 
   pointer(view, event, phase) {
+    this.noteInput(view);
     const kind = POINTER_KINDS[event.pointerType] ?? PointerKind.Mouse;
     const [ratioX, ratioY] = view.ratio();
     const [x, y] = view.position(event);
@@ -1212,11 +1285,13 @@ class GuiPage {
       view.typedByKey = "";
     });
     on("compositionupdate", (event) => {
+      this.noteInput(view);
       const text = event.data ?? "";
       const end = utf8Length(text);
       this.core.composition(view.id, text, end, end);
     });
     on("compositionend", (event) => {
+      this.noteInput(view);
       view.composing = false;
       const text = event.data ?? "";
       this.core.composition(view.id, "", -1, -1);
@@ -1263,6 +1338,7 @@ class GuiPage {
 
   beforeInput(view, event) {
     if (view.composing || event.isComposing || view.composed) return;
+    this.noteInput(view);
     const data = event.data ?? "";
     switch (event.inputType) {
       case "insertText":
@@ -1322,6 +1398,7 @@ class GuiPage {
     }
     const text = event.clipboardData?.getData("text/plain") ?? "";
     event.preventDefault();
+    this.noteInput(view);
     this.pasted = { text, at: this.now() };
     const waiting = this.readers;
     this.readers = [];
@@ -1401,6 +1478,20 @@ function randomName() {
  * - `resizable`: `false` keeps guests from asking the canvas to be another
  *   size; the page's layout alone decides.
  * - `manageCanvasSize`: `false` leaves `canvas.width` and `height` alone.
+ * - `eagerRedraw`: `true` answers a window's request to redraw at once,
+ *   instead of at the browser's next frame, when the user did something to
+ *   the window since its last redraw (a key, the pointer, the wheel, text,
+ *   a paste, or moving the focus). That frame is usually most of a frame
+ *   away when the request answers what the user did, so it is shown about a
+ *   frame sooner. A request already waiting for a frame is answered then
+ *   too. Without input since the last redraw, requests keep to the frames:
+ *   a guest drawing frame after frame on its own does, however long its
+ *   frames take. While the user does something, the host keeps a request
+ *   to the frames when the guest made it before waiting for events again
+ *   since it read its last redraw. A guest that waits between its frames,
+ *   or draws on one thread and waits on another, may then be answered at
+ *   once after each input. A window nobody can see waits for the frames.
+ *   Off by default.
  * - `document`: the document, when it is not `globalThis.document`.
  */
 export function createGuiPage(core, options) {

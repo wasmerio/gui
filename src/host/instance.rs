@@ -158,6 +158,7 @@ impl InstanceApi for Host {
         let shared = &instance.shared;
         let limit = (timeout != WAIT_FOREVER).then(|| Duration::from_nanos(timeout));
         let started = crate::clock::now();
+        shared.waits.fetch_add(1, Ordering::AcqRel);
         shared.waiting.fetch_add(1, Ordering::AcqRel);
         let outcome = loop {
             match wait_step(shared, cx.stopped, started, limit) {
