@@ -173,7 +173,12 @@ where it sleeps in `wguiInstanceWaitEvents`. No message is posted, and the
 guest needs no JSPI to wait.
 
 That sleep blocks the worker, though, and whatever else lives in it waits
-too: WebGPU's callbacks, messages, timers. An embedder that enters its guests
+too: WebGPU's callbacks, messages, timers. In a browser one wait blocks it
+for 8 ms at most rather than a quarter of a second, then returns
+`WGUIWaitReasons_Interrupted`. That bounds a single call; it does not let the
+worker's event loop run, which happens only when the program suspends
+between its waits, or returns to its embedder. A program that waits again at
+once keeps the worker. An embedder that enters its guests
 through JSPI (`Function::call_async`) can let the wait suspend instead
 (`GuiCtxBuilder::suspending_waits`, `host::web_wait`). The guest then waits
 with `Atomics.waitAsync` on a counter that every notification of its

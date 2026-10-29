@@ -18,6 +18,16 @@ pub(super) const WAIT_SLICE: Duration = Duration::from_millis(50);
 /// How long a wait may last before the host hands the thread back for a
 /// moment (see `WGUIWaitReasons_Interrupted`).
 const INTERRUPT_AFTER: Duration = Duration::from_millis(250);
+/// The same for a wait that parks a browser Worker: the longest one call
+/// blocks it. Nothing else in the Worker runs while it parks (its WebGPU
+/// completions, timers, messages), and coming back does not give the Worker's
+/// event loop a turn either: a program that waits again at once keeps the
+/// Worker. Its event loop runs only when the program suspends between its
+/// waits, in another import that suspends through JSPI, or returns to its
+/// embedder. A wait that suspends itself
+/// ([`crate::GuiCtxBuilder::suspending_waits`]) leaves the Worker free and
+/// keeps `INTERRUPT_AFTER`.
+pub(super) const BROWSER_PARK_INTERRUPT_AFTER: Duration = Duration::from_millis(8);
 /// The largest edge of a custom cursor when the window system names none.
 const MAX_CURSOR_EDGE: u32 = 512;
 
@@ -34,11 +44,25 @@ pub(crate) enum WaitStep {
 
 /// Looks once at a wait that began at `started`, on [`crate::clock`], and may
 /// last `limit` (`None` for as long as it takes). A pending wake is used up.
+#[cfg(any(test, all(target_arch = "wasm32", feature = "js")))]
 pub(crate) fn wait_step(
     shared: &InstanceShared,
     stopped: &dyn Fn() -> bool,
     started: Duration,
     limit: Option<Duration>,
+) -> WaitStep {
+    let (_, interrupt_after) = slice_and_interrupt();
+    wait_step_within(shared, stopped, started, limit, interrupt_after)
+}
+
+/// [`wait_step`] for a wait that the host hands back, if nothing else ended
+/// it, once it has lasted `interrupt_after`.
+pub(crate) fn wait_step_within(
+    shared: &InstanceShared,
+    stopped: &dyn Fn() -> bool,
+    started: Duration,
+    limit: Option<Duration>,
+    interrupt_after: Duration,
 ) -> WaitStep {
     let mut why = 0;
     if shared.has_events() {
@@ -57,7 +81,7 @@ pub(crate) fn wait_step(
         // Another thread destroyed the instance under this one.
         return WaitStep::Done(Ok(wait_reasons::INTERRUPTED));
     }
-    let (wait_slice, interrupt_after) = slice_and_interrupt();
+    let (wait_slice, _) = slice_and_interrupt();
     let waited = crate::clock::now().saturating_sub(started);
     let left = match limit {
         Some(limit) if waited >= limit => return WaitStep::Done(Ok(0)),
@@ -157,11 +181,17 @@ impl InstanceApi for Host {
         };
         let shared = &instance.shared;
         let limit = (timeout != WAIT_FOREVER).then(|| Duration::from_nanos(timeout));
+        let (_, mut interrupt_after) = slice_and_interrupt();
+        // Parking blocks a browser Worker: no single call holds it for long.
+        // A shorter timeout of the guest's own still times out.
+        if cfg!(all(target_arch = "wasm32", feature = "js")) {
+            interrupt_after = interrupt_after.min(BROWSER_PARK_INTERRUPT_AFTER);
+        }
         let started = crate::clock::now();
         shared.waits.fetch_add(1, Ordering::AcqRel);
         shared.waiting.fetch_add(1, Ordering::AcqRel);
         let outcome = loop {
-            match wait_step(shared, cx.stopped, started, limit) {
+            match wait_step_within(shared, cx.stopped, started, limit, interrupt_after) {
                 WaitStep::Done(outcome) => break outcome,
                 WaitStep::Sleep(slice) => shared.wait.park(slice, || shared.has_events()),
             }

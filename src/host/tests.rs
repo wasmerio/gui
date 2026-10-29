@@ -1886,6 +1886,32 @@ fn one_look_at_a_wait_says_why_it_is_over_or_how_long_to_sleep() {
 }
 
 #[test]
+fn a_wait_that_parks_a_browser_worker_is_handed_back_soon() {
+    // In a browser the parking wait hands the thread back after
+    // BROWSER_PARK_INTERRUPT_AFTER (`instance_wait_events`): nothing else in
+    // the Worker runs while it parks. A shorter timeout still times out.
+    use super::instance::{BROWSER_PARK_INTERRUPT_AFTER, WaitStep, wait_step_within};
+    let rig = Rig::new();
+    let shared = rig.shared();
+    let running = || false;
+    let soon = BROWSER_PARK_INTERRUPT_AFTER;
+    let started = crate::clock::now();
+    let step = wait_step_within(&shared, &running, started, None, soon);
+    assert!(matches!(step, WaitStep::Sleep(slice) if slice <= soon));
+    std::thread::sleep(soon);
+    // Handed back, not timed out: nothing happened, and the guest waits again.
+    for limit in [None, Some(soon * 100)] {
+        let step = wait_step_within(&shared, &running, started, limit, soon);
+        assert!(matches!(
+            step,
+            WaitStep::Done(Ok(wait_reasons::INTERRUPTED))
+        ));
+    }
+    let step = wait_step_within(&shared, &running, started, Some(soon / 2), soon);
+    assert!(matches!(step, WaitStep::Done(Ok(0))));
+}
+
+#[test]
 fn what_ends_a_wait_changes_the_counter_a_suspended_wait_sleeps_on() {
     // The browser's suspending wait reads the counter, looks, and then sleeps
     // until the counter changes (`web_wait`). Whatever would end the wait
