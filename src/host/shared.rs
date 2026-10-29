@@ -255,10 +255,16 @@ pub(crate) struct WindowShared {
     /// [`InstanceShared::waits`] when the guest was last handed a
     /// `WindowRedrawRequested` of the window; `u64::MAX` for never.
     pub(crate) redrawn_at_wait: AtomicU64,
-    /// Nothing the guest drew is in the window at its present size: it is
-    /// new, or its size changed (a canvas is cleared then). The next redraw
-    /// the guest is handed is an exposure, whenever it was queued.
+    /// Nothing the guest drew is in the window any more: it is new, or its
+    /// size changed (a canvas is cleared then). Set by the window system's
+    /// side; the next redraw the guest takes is an exposure, whenever it was
+    /// queued.
     pub(crate) exposed: AtomicBool,
+    /// The guest was just handed a resize: the next redraw it takes is an
+    /// exposure too, at the size it now knows. A redraw it took before the
+    /// resize, because the resize came between its looks at the mailboxes,
+    /// does not use this up. Only the guest's side touches it.
+    exposure_owed: AtomicBool,
     resize: Slot,
     moved: Slot,
     wheel: Slot,
@@ -275,6 +281,7 @@ impl Default for WindowShared {
             text_input: AtomicBool::new(false),
             redrawn_at_wait: AtomicU64::new(u64::MAX),
             exposed: AtomicBool::new(true),
+            exposure_owed: AtomicBool::new(false),
             resize: Slot::new(),
             moved: Slot::new(),
             wheel: Slot::new(),
@@ -320,25 +327,40 @@ impl WindowShared {
 
     /// Moves what the mailboxes hold into `out`. Returns whether there was
     /// anything.
-    /// With `redraw_reasons`, a redraw handed over now is an exposure if the
-    /// window is (`exposed`), or if a resize goes with it: the sink marks the
-    /// window only after it queued the resize.
     fn take_slots(&self, out: &mut VecDeque<Queued>, redraw_reasons: bool) -> bool {
         let before = out.len();
-        let mut resized = false;
+        self.take_ordered_slots(out);
+        self.take_redraw(out, redraw_reasons);
+        out.len() != before
+    }
+
+    /// The first look of [`Self::take_slots`]: every mailbox but the redraw.
+    /// A resize handed over owes the guest an exposure (`exposure_owed`).
+    pub(super) fn take_ordered_slots(&self, out: &mut VecDeque<Queued>) {
         for slot in self.ordered_slots() {
             if let Some(queued) = slot.take() {
-                resized |= std::ptr::eq(slot, &self.resize);
+                if std::ptr::eq(slot, &self.resize) {
+                    self.exposure_owed.store(true, Ordering::Relaxed);
+                }
                 out.push_back(queued);
             }
         }
+    }
+
+    /// The second look: the redraw. With `redraw_reasons` it is an exposure
+    /// if the window was cleared since the guest last took one (`exposed`),
+    /// or if the guest was handed a resize before it (`exposure_owed`). A
+    /// resize can come between the two looks: the older redraw then uses up
+    /// `exposed`, and the one after the resize is owed its exposure.
+    pub(super) fn take_redraw(&self, out: &mut VecDeque<Queued>, redraw_reasons: bool) {
         if let Some(mut redraw) = self.redraw.take() {
-            if redraw_reasons && (self.exposed.swap(false, Ordering::AcqRel) || resized) {
+            let exposed = self.exposed.swap(false, Ordering::AcqRel);
+            let owed = self.exposure_owed.swap(false, Ordering::Relaxed);
+            if redraw_reasons && (exposed || owed) {
                 redraw.flags |= event_flags::EXPOSURE;
             }
             out.push_back(redraw);
         }
-        out.len() != before
     }
 
     fn slots_empty(&self) -> bool {
