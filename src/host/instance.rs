@@ -18,9 +18,13 @@ pub(super) const WAIT_SLICE: Duration = Duration::from_millis(50);
 /// How long a wait may last before the host hands the thread back for a
 /// moment (see `WGUIWaitReasons_Interrupted`).
 const INTERRUPT_AFTER: Duration = Duration::from_millis(250);
-/// The same for a wait that parks a browser Worker. Nothing else in the Worker
-/// runs while it parks (its WebGPU completions, timers, messages), so the
-/// thread is handed back far sooner. A wait that suspends instead
+/// The same for a wait that parks a browser Worker: the longest one call
+/// blocks it. Nothing else in the Worker runs while it parks (its WebGPU
+/// completions, timers, messages), and coming back does not give the Worker's
+/// event loop a turn either: a program that waits again at once keeps the
+/// Worker. Its event loop runs only when the program suspends between its
+/// waits, in another import that suspends through JSPI, or returns to its
+/// embedder. A wait that suspends itself
 /// ([`crate::GuiCtxBuilder::suspending_waits`]) leaves the Worker free and
 /// keeps `INTERRUPT_AFTER`.
 pub(super) const BROWSER_PARK_INTERRUPT_AFTER: Duration = Duration::from_millis(8);
@@ -178,8 +182,8 @@ impl InstanceApi for Host {
         let shared = &instance.shared;
         let limit = (timeout != WAIT_FOREVER).then(|| Duration::from_nanos(timeout));
         let (_, mut interrupt_after) = slice_and_interrupt();
-        // Parking blocks a browser Worker: hand the thread back sooner. A
-        // shorter timeout of the guest's own still times out.
+        // Parking blocks a browser Worker: no single call holds it for long.
+        // A shorter timeout of the guest's own still times out.
         if cfg!(all(target_arch = "wasm32", feature = "js")) {
             interrupt_after = interrupt_after.min(BROWSER_PARK_INTERRUPT_AFTER);
         }

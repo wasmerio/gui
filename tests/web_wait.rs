@@ -23,8 +23,10 @@ use wasmer_gui::{GuiCtx, GuiScope};
 
 /// Opens an instance and waits on it for `timeout` nanoseconds. `run`
 /// answers the wait's status, with its reasons above the low byte, or -1 if
-/// the instance could not be opened. `sched_yield` is the runtime's: the wait
-/// calls it as it returns.
+/// the instance could not be opened. `repeat` waits `times` times in a row,
+/// as a program that waits again at once does, and answers how many of those
+/// waits were handed back as interrupted. `sched_yield` is the runtime's: the
+/// wait calls it as it returns.
 const GUEST: &str = r#"
 (module
   (import "wasix_32v1" "sched_yield" (func (result i32)))
@@ -37,7 +39,21 @@ const GUEST: &str = r#"
     (if (i32.ne (call $create (i32.const 0) (i32.const 16)) (i32.const 1))
       (then (return (i32.const -1))))
     (local.set $status (call $wait (i32.load (i32.const 16)) (local.get $timeout) (i32.const 32)))
-    (i32.or (local.get $status) (i32.shl (i32.load (i32.const 32)) (i32.const 8)))))
+    (i32.or (local.get $status) (i32.shl (i32.load (i32.const 32)) (i32.const 8))))
+  (func (export "repeat") (param $timeout i64) (param $times i32) (result i32)
+    (local $interrupted i32)
+    (if (i32.ne (call $create (i32.const 0) (i32.const 16)) (i32.const 1))
+      (then (return (i32.const -1))))
+    (block $done
+      (loop $again
+        (br_if $done (i32.eqz (local.get $times)))
+        (drop (call $wait (i32.load (i32.const 16)) (local.get $timeout) (i32.const 32)))
+        ;; WGUIWaitReasons_Interrupted
+        (if (i32.eq (i32.load (i32.const 32)) (i32.const 4))
+          (then (local.set $interrupted (i32.add (local.get $interrupted) (i32.const 1)))))
+        (local.set $times (i32.sub (local.get $times) (i32.const 1)))
+        (br $again)))
+    (local.get $interrupted)))
 "#;
 
 const SUCCESS: i32 = Status::Success as i32;
@@ -97,11 +113,15 @@ fn yield_into_exit<const CODE: i32>() -> Result<i32, RuntimeError> {
 }
 
 /// The guest, given `scope`'s imports and `sched_yield`, in a store ready for
-/// `call_async`.
+/// `call_async`: its `run` and its `repeat`.
 fn guest<Rets: WasmTypeList>(
     scope: &GuiScope,
     sched_yield: impl HostFunction<(), (), Rets, WithoutEnv> + Send + Sync + 'static,
-) -> (StoreAsync, TypedFunction<i64, i32>) {
+) -> (
+    StoreAsync,
+    TypedFunction<i64, i32>,
+    TypedFunction<(i64, i32), i32>,
+) {
     let mut store = Store::default();
     let module = Module::new(&store, wat::parse_str(GUEST).expect("wat parses")).expect("compiles");
     let mut imports = Imports::new();
@@ -119,7 +139,11 @@ fn guest<Rets: WasmTypeList>(
         .exports
         .get_typed_function(&store, "run")
         .expect("exports run");
-    (store.into_async(), run)
+    let repeat = instance
+        .exports
+        .get_typed_function(&store, "repeat")
+        .expect("exports repeat");
+    (store.into_async(), run, repeat)
 }
 
 /// Runs `f` from this thread's event loop after `ms`. What it returns tells
@@ -155,7 +179,7 @@ async fn a_wait_of_no_time_returns_at_once() {
     assert_can_suspend();
     let ctx = GuiCtx::builder().suspending_waits(true).build();
     let scope = ctx.scope();
-    let (store, run) = guest(&scope, yield_quietly);
+    let (store, run, _) = guest(&scope, yield_quietly);
     let in_call = Rc::new(Cell::new(false));
     let (returned, took) = call(&store, &run, 0, &in_call).await;
     assert_eq!(returned.expect("the wait returns"), SUCCESS, "no reasons");
@@ -167,7 +191,7 @@ async fn a_wait_runs_out_while_the_event_loop_goes_on() {
     assert_can_suspend();
     let ctx = GuiCtx::builder().suspending_waits(true).build();
     let scope = ctx.scope();
-    let (store, run) = guest(&scope, yield_quietly);
+    let (store, run, _) = guest(&scope, yield_quietly);
     let in_call = Rc::new(Cell::new(false));
     let fired = after(20, &in_call, || {});
     // Shorter than the 250 ms after which a wait is handed back as
@@ -187,7 +211,7 @@ async fn the_event_waker_ends_a_wait_from_the_same_thread() {
     assert_can_suspend();
     let ctx = GuiCtx::builder().suspending_waits(true).build();
     let scope = ctx.scope();
-    let (store, run) = guest(&scope, yield_quietly);
+    let (store, run, _) = guest(&scope, yield_quietly);
     let in_call = Rc::new(Cell::new(false));
     let wake = ctx.event_waker();
     let fired = after(30, &in_call, move || wake());
@@ -205,7 +229,7 @@ async fn closing_the_scope_stops_a_waiting_guest() {
     assert_can_suspend();
     let ctx = GuiCtx::builder().suspending_waits(true).build();
     let scope = ctx.scope();
-    let (store, run) = guest(&scope, yield_quietly);
+    let (store, run, _) = guest(&scope, yield_quietly);
     let in_call = Rc::new(Cell::new(false));
     let closing = scope.clone();
     let fired = after(30, &in_call, move || closing.close());
@@ -224,7 +248,7 @@ async fn closing_the_scope_stops_a_waiting_guest() {
 async fn exit_from_a_wait<const CODE: i32>(suspending: bool, timeout: u64) -> (RuntimeError, bool) {
     let ctx = GuiCtx::builder().suspending_waits(suspending).build();
     let scope = ctx.scope();
-    let (store, run) = guest(&scope, yield_into_exit::<CODE>);
+    let (store, run, _) = guest(&scope, yield_into_exit::<CODE>);
     let in_call = Rc::new(Cell::new(false));
     let fired = after(10, &in_call, || {});
     let (returned, _) = call(&store, &run, timeout, &in_call).await;
@@ -265,4 +289,68 @@ async fn an_exit_as_a_parking_wait_returns_keeps_its_type() {
         Some(&ProbeExit(9)),
         "{error}"
     );
+}
+
+#[wasm_bindgen_test]
+async fn a_parking_wait_is_handed_back_after_8_ms() {
+    let ctx = GuiCtx::builder().suspending_waits(false).build();
+    let scope = ctx.scope();
+    let (store, run, _) = guest(&scope, yield_quietly);
+    let in_call = Rc::new(Cell::new(false));
+    let (returned, took) = call(&store, &run, 200 * MS, &in_call).await;
+    assert_eq!(
+        returned.expect("the wait returns"),
+        SUCCESS | (wait_reasons::INTERRUPTED as i32) << 8
+    );
+    assert!((7.0..100.0).contains(&took), "took {took} ms");
+}
+
+#[wasm_bindgen_test]
+async fn a_parking_wait_shorter_than_that_runs_out() {
+    let ctx = GuiCtx::builder().suspending_waits(false).build();
+    let scope = ctx.scope();
+    let (store, run, _) = guest(&scope, yield_quietly);
+    let in_call = Rc::new(Cell::new(false));
+    let (returned, _) = call(&store, &run, 4 * MS, &in_call).await;
+    assert_eq!(returned.expect("the wait returns"), SUCCESS, "no reasons");
+}
+
+/// A program that waits again as soon as a wait is handed back. Parking, it
+/// keeps the thread however short each wait is: its event loop gets no turn,
+/// so a timer due meanwhile runs only once the program stops waiting. Only a
+/// wait that suspends lets it run.
+#[wasm_bindgen_test]
+async fn only_a_suspending_wait_lets_the_event_loop_run_between_repeated_waits() {
+    assert_can_suspend();
+    for suspending in [false, true] {
+        let ctx = GuiCtx::builder().suspending_waits(suspending).build();
+        let scope = ctx.scope();
+        let (store, _, repeat) = guest(&scope, yield_quietly);
+        let in_call = Rc::new(Cell::new(false));
+        let fired = after(5, &in_call, || {});
+        // Parking, each wait is handed back after 8 ms; suspending, each one
+        // runs out after its 20 ms.
+        let timeout = if suspending { 20 * MS } else { WAIT_FOREVER };
+        in_call.set(true);
+        let interrupted = repeat
+            .call_async(&store, timeout as i64, 8)
+            .await
+            .expect("the waits return");
+        in_call.set(false);
+        if suspending {
+            assert_eq!(interrupted, 0);
+            assert_eq!(
+                fired.get(),
+                Some(true),
+                "the timer did not run during the waits"
+            );
+        } else {
+            assert_eq!(interrupted, 8);
+            assert_eq!(
+                fired.get(),
+                None,
+                "the timer ran while the guest kept the thread"
+            );
+        }
+    }
 }
