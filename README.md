@@ -166,7 +166,8 @@ embedder's shared memory, without a message and without JSPI. See
 `docs/architecture.md`.
 
 A guest that waits for input blocks its worker meanwhile, and with it
-whatever else completes there, such as WebGPU's callbacks. An embedder that
+whatever else completes there, such as WebGPU's callbacks: so the wait hands
+the thread back every 8 ms (`WGUIWaitReasons_Interrupted`). An embedder that
 enters its guests with `Function::call_async` can let the wait suspend
 instead, and hand the context's waker to that other work. Where the engine
 has no JSPI or no `Atomics.waitAsync`, waits block as before; a guest
