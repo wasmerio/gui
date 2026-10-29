@@ -621,13 +621,13 @@ class GuiPage {
     view.redrawAsked = false;
     view.inputSinceRedraw = false;
     if (this.views.get(view.id) !== view) return;
-    // A core that tells the guest why (`redrawReasonsVersion` 1) hears each
-    // reason: the answer to the guest's request, and an exposure. The host
-    // merges the two into one redraw. Any other core gets a plain redraw,
-    // which the guest takes as an exposure.
+    // A core that tells the guest why (`redrawReasonsVersion` 1) hears which
+    // redraws answer its request, and whether that answer is an exposure too:
+    // in one call, so that the guest reads both in one redraw. Any other core
+    // gets a plain redraw, which the guest takes as an exposure.
     if (this.core.redrawReasonsVersion === 1 && typeof this.core.redrawFrame === "function") {
-      if (answering || !exposure) this.core.redrawFrame(view.id);
-      if (exposure) this.core.redraw(view.id);
+      if (answering || !exposure) this.core.redrawFrame(view.id, exposure);
+      else this.core.redraw(view.id);
     } else {
       this.core.redraw(view.id);
     }

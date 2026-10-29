@@ -513,7 +513,7 @@ test("a core that tells redraw reasons hears which redraws only answer a request
   // The answer to the guest's request is a frame callback.
   await page.evaluate(() => gui.requestRedraw(1));
   await until(page, () => harness.calls.some((call) => call[0] === "redrawFrame"));
-  assert.deepEqual(await page.evaluate(() => [harness.take("redrawFrame"), harness.take("redraw")]), [[[1]], []]);
+  assert.deepEqual(await page.evaluate(() => [harness.take("redrawFrame"), harness.take("redraw")]), [[[1, false]], []]);
   // Seen again, the window is exposed: a plain redraw.
   await page.evaluate(() => window.scrollTo(0, 2000));
   await until(page, () => harness.calls.some((call) => call[0] === "flags"));
@@ -533,7 +533,7 @@ test("a core that tells redraw reasons hears which redraws only answer a request
   assert.deepEqual(errors, []);
 });
 
-test("a window seen again while its request waits hears both reasons, and an eager answer is a frame callback", { skip }, async (context) => {
+test("a window seen again while its request waits answers it as an exposure, in one call", { skip }, async (context) => {
   const { page, errors, unavailable } = await openPage(context);
   if (unavailable) return context.skip(unavailable);
 
@@ -549,21 +549,24 @@ test("a window seen again while its request waits hears both reasons, and an eag
     const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
     await frame();
     harness.calls.length = 0;
-    // The guest asks while nobody can see the window, which is seen again
-    // about then: whichever comes first, the frame or being seen, the guest
-    // hears that its request is answered and that the window is exposed.
+    // The guest asks while nobody can see the window: its request waits for
+    // a frame. The window is seen again before that frame, and the redraw for
+    // being seen answers the request: one call with both reasons.
     gui.requestRedraw(1);
     window.scrollTo(0, 0);
-    for (let n = 0; n < 5; n++) await frame();
+    const seenBeforeTheFrame = await new Promise((done) =>
+      requestAnimationFrame(() => done(harness.calls.some((call) => call[0] === "flags"))),
+    );
+    for (let n = 0; n < 4; n++) await frame();
     const seen = [harness.take("redrawFrame"), harness.take("redraw")];
-    // Answered at once for what the user did, it is a frame callback too.
+    // Answered at once for what the user did, it is a frame callback only.
     gui.options.eagerRedraw = true;
     harness.touch();
     gui.requestRedraw(1);
     await null;
-    return [...seen, harness.take("redrawFrame"), harness.take("redraw")];
+    return [seenBeforeTheFrame, ...seen, harness.take("redrawFrame"), harness.take("redraw")];
   });
-  assert.deepEqual(told, [[[1]], [[1]], [[1]], []]);
+  assert.deepEqual(told, [true, [[1, true]], [], [[1, false]], []]);
   assert.deepEqual(errors, []);
 });
 

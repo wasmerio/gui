@@ -255,6 +255,10 @@ pub(crate) struct WindowShared {
     /// [`InstanceShared::waits`] when the guest was last handed a
     /// `WindowRedrawRequested` of the window; `u64::MAX` for never.
     pub(crate) redrawn_at_wait: AtomicU64,
+    /// Nothing the guest drew is in the window at its present size: it is
+    /// new, or its size changed (a canvas is cleared then). The next redraw
+    /// the guest is handed is an exposure, whenever it was queued.
+    pub(crate) exposed: AtomicBool,
     resize: Slot,
     moved: Slot,
     wheel: Slot,
@@ -270,6 +274,7 @@ impl Default for WindowShared {
             closed: AtomicBool::new(false),
             text_input: AtomicBool::new(false),
             redrawn_at_wait: AtomicU64::new(u64::MAX),
+            exposed: AtomicBool::new(true),
             resize: Slot::new(),
             moved: Slot::new(),
             wheel: Slot::new(),
@@ -315,10 +320,24 @@ impl WindowShared {
 
     /// Moves what the mailboxes hold into `out`. Returns whether there was
     /// anything.
-    fn take_slots(&self, out: &mut VecDeque<Queued>) -> bool {
+    /// With `redraw_reasons`, a redraw handed over now is an exposure if the
+    /// window is (`exposed`), or if a resize goes with it: the sink marks the
+    /// window only after it queued the resize.
+    fn take_slots(&self, out: &mut VecDeque<Queued>, redraw_reasons: bool) -> bool {
         let before = out.len();
-        out.extend(self.ordered_slots().filter_map(Slot::take));
-        out.extend(self.redraw.take());
+        let mut resized = false;
+        for slot in self.ordered_slots() {
+            if let Some(queued) = slot.take() {
+                resized |= std::ptr::eq(slot, &self.resize);
+                out.push_back(queued);
+            }
+        }
+        if let Some(mut redraw) = self.redraw.take() {
+            if redraw_reasons && (self.exposed.swap(false, Ordering::AcqRel) || resized) {
+                redraw.flags |= event_flags::EXPOSURE;
+            }
+            out.push_back(redraw);
+        }
         out.len() != before
     }
 
@@ -487,6 +506,9 @@ impl Consumer {
 /// What the producers and the guest share about one instance.
 pub(crate) struct InstanceShared {
     pub(crate) system: Arc<dyn WindowSystem>,
+    /// The window system tells why a window is redrawn
+    /// (`WGUIFeatureName_RedrawReasons`): only then do redraws carry a reason.
+    pub(crate) redraw_reasons: bool,
     queue: ArrayQueue<Queued>,
     completions: SegQueue<Queued>,
     /// Requests accepted whose completion the guest has not read yet.
@@ -536,8 +558,10 @@ impl InstanceShared {
         event_mask: u64,
         clipboard_hidden: bool,
     ) -> Self {
+        let redraw_reasons = system.info().features.contains(&FeatureName::RedrawReasons);
         Self {
             system,
+            redraw_reasons,
             queue: ArrayQueue::new(capacity.max(16)),
             completions: SegQueue::new(),
             owed: AtomicU32::new(0),
@@ -703,7 +727,7 @@ impl InstanceShared {
             let windows = lock(&self.windows).clone();
             let mut any = false;
             for window in &windows {
-                any |= window.take_slots(&mut consumer.pending);
+                any |= window.take_slots(&mut consumer.pending, self.redraw_reasons);
             }
             if let Some(queued) = self.raw_motion.take() {
                 consumer.pending.push_back(queued);

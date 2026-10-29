@@ -760,8 +760,8 @@ fn core(scope: u32) -> (JsValue, Vec<Box<dyn std::any::Any>>) {
     );
     on!(
         "redrawFrame",
-        Closure::<dyn Fn(f64)>::new(move |view| {
-            with_sink(scope, view, WindowSink::frame_callback_requested);
+        Closure::<dyn Fn(f64, bool)>::new(move |view, exposure| {
+            with_sink(scope, view, |sink| sink.frame_callback_requested(exposure));
         })
     );
     on!(

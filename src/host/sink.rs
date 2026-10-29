@@ -323,13 +323,6 @@ pub struct WindowSink {
     window: Arc<WindowShared>,
     /// The modifier the platform's shortcuts use, for spotting a paste.
     shortcut_modifier: u32,
-    /// The window system tells why a window is redrawn
-    /// (`WGUIFeatureName_RedrawReasons`): only then do redraws carry a reason.
-    redraw_reasons: bool,
-    /// Nothing the guest drew is in the window at its present size: a new
-    /// window, or one whose size changed (a canvas is cleared then). Its next
-    /// redraw is an exposure, whatever else it is.
-    exposed: bool,
     /// The resync epoch this sink has caught up with.
     epoch: u32,
     /// The window's size has been reported at least once.
@@ -356,12 +349,6 @@ impl WindowSink {
             instance: Arc::clone(instance),
             window: Arc::clone(window),
             shortcut_modifier,
-            redraw_reasons: instance
-                .system
-                .info()
-                .features
-                .contains(&FeatureName::RedrawReasons),
-            exposed: true,
             epoch: instance.resync_epoch.load(Ordering::Acquire),
             sized: false,
             focused: false,
@@ -499,12 +486,18 @@ impl WindowSink {
         if before.scale_factor != scale_factor {
             changed |= resize_flags::SCALE_FACTOR;
         }
-        if changed != 0 {
-            self.exposed = true;
-        }
-        if changed == 0 || !self.wanted(event_class::WINDOW) {
+        if changed == 0 {
             return;
         }
+        if self.wanted(event_class::WINDOW) {
+            self.queue_resize(width, height, scale_factor, changed);
+        }
+        // Only now: a guest that takes the resize with a redraw already
+        // waiting sees that redraw as an exposure (`WindowShared::exposed`).
+        self.window.exposed.store(true, Ordering::Release);
+    }
+
+    fn queue_resize(&mut self, width: u32, height: u32, scale_factor: f64, changed: u32) {
         let resized = self.queued(
             0,
             0,
@@ -657,21 +650,25 @@ impl WindowSink {
         self.redraw_with_reason(event_flags::EXPOSURE);
     }
 
-    /// Answers the guest's `wguiWindowRequestRedraw` and nothing more: what the
-    /// window showed is still there. Only a window system that knows this, and
-    /// says so with `WGUIFeatureName_RedrawReasons`, calls it.
-    pub fn frame_callback_requested(&mut self) {
-        self.redraw_with_reason(event_flags::FRAME_CALLBACK);
+    /// Answers the guest's `wguiWindowRequestRedraw`; on its own, what the
+    /// window showed is still there. `exposure`: the window also has to be
+    /// shown whole again, told in the same redraw. Only a window system that
+    /// knows this, and says so with `WGUIFeatureName_RedrawReasons`, calls it.
+    pub fn frame_callback_requested(&mut self, exposure: bool) {
+        let exposure = if exposure { event_flags::EXPOSURE } else { 0 };
+        self.redraw_with_reason(event_flags::FRAME_CALLBACK | exposure);
     }
 
     fn redraw_with_reason(&mut self, reason: u32) {
         if !self.wanted(event_class::WINDOW) {
             return;
         }
-        let reason = match self.redraw_reasons {
-            true if std::mem::take(&mut self.exposed) => reason | event_flags::EXPOSURE,
-            true => reason,
-            false => 0,
+        // A new or resized window's exposure is added as the guest takes the
+        // redraw (`WindowShared::exposed`).
+        let reason = if self.instance.redraw_reasons {
+            reason
+        } else {
+            0
         };
         let redraw = self.queued(0, reason, Event::WindowRedrawRequested);
         self.window.redraw_slot().put(redraw, |old, mut new| {
