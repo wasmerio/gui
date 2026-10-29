@@ -2373,55 +2373,51 @@ fn one_call_tells_both_reasons_in_one_redraw() {
     );
 }
 
-#[test]
-fn a_resize_between_the_guests_two_looks_exposes_the_frame_after_it() {
-    // The guest looks at a window's mailboxes in two steps (`take_slots`).
-    // The page can resize the window between them: the guest then takes the
-    // older redraw before the resize. That redraw is an exposure (the canvas
-    // was cleared), and so is the next one, at the size the guest then knows.
-    use std::collections::VecDeque;
+/// The page resizes the window while the guest's poll is between its two
+/// looks at the window's mailboxes (`take_slots`), and with `then_key` the user
+/// presses a key, which moves the resize to the queue. The guest is handed the
+/// older redraw before the resize either way. That redraw is an exposure (the
+/// canvas was cleared), and so is the first one at the new size, wherever the
+/// resize came from.
+fn resize_between_the_guests_two_looks(then_key: bool) {
     use std::sync::Barrier;
     let rig = redraw_reason_rig();
     let (window, _) = rig.window();
     let (state, mut sink) = redraw_sink(&rig, window);
     sink.frame_callback_requested(false);
-    // The guest's thread looks twice; the page resizes in between.
-    let looked = Arc::new(Barrier::new(2));
-    let resized = Arc::new(Barrier::new(2));
-    let guest = {
-        let (shared, looked, resized) = (
-            Arc::clone(&state.shared),
-            Arc::clone(&looked),
-            Arc::clone(&resized),
-        );
-        std::thread::spawn(move || {
-            let mut taken = VecDeque::new();
-            shared.take_ordered_slots(&mut taken);
-            let first = taken.len();
-            looked.wait();
-            resized.wait();
-            shared.take_redraw(&mut taken, true);
-            (first, taken)
-        })
+    let paused = Arc::new(Barrier::new(2));
+    let resumed = Arc::new(Barrier::new(2));
+    {
+        let (paused, resumed) = (Arc::clone(&paused), Arc::clone(&resumed));
+        *lock(&state.shared.between_looks) = Some(Box::new(move || {
+            paused.wait();
+            resumed.wait();
+        }));
+    }
+    let page = std::thread::spawn(move || {
+        paused.wait();
+        sink.resized(800, 600, 1.0);
+        if then_key {
+            sink.key(key(PhysicalKey::KeyA, true));
+        }
+        resumed.wait();
+        sink
+    });
+    // The guest's poll, which pauses between its looks while the page acts.
+    let events = rig.events();
+    let mut sink = page.join().expect("the page's thread");
+    let names: Vec<_> = events.iter().map(|(_, event)| event.ty().name()).collect();
+    let expected: &[&str] = if then_key {
+        &["WindowRedrawRequested", "WindowResized", "KeyDown"]
+    } else {
+        &["WindowRedrawRequested", "WindowResized"]
     };
-    looked.wait();
-    sink.resized(800, 600, 1.0);
-    resized.wait();
-    let (first, taken) = guest.join().expect("the guest's thread");
-    assert_eq!(first, 0, "the first look found nothing");
-    assert_eq!(taken.len(), 1);
-    assert!(matches!(taken[0].event, Event::WindowRedrawRequested));
+    assert_eq!(names, expected);
     assert_eq!(
-        taken[0].flags,
+        events[0].0.flags,
         event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
     );
-    // The resize comes with the guest's next look, and the frame after it
-    // is owed its exposure.
-    let events = rig.events();
-    assert!(
-        matches!(events.as_slice(), [(_, Event::WindowResized(_))]),
-        "{events:?}"
-    );
+    // The first frame at the new size.
     sink.frame_callback_requested(false);
     assert_eq!(
         rig.events()[0].0.flags,
@@ -2429,4 +2425,14 @@ fn a_resize_between_the_guests_two_looks_exposes_the_frame_after_it() {
     );
     sink.frame_callback_requested(false);
     assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+}
+
+#[test]
+fn a_resize_between_the_guests_two_looks_exposes_the_frame_after_it() {
+    resize_between_the_guests_two_looks(false);
+}
+
+#[test]
+fn a_resize_flushed_to_the_queue_by_input_still_exposes_the_frame_after_it() {
+    resize_between_the_guests_two_looks(true);
 }
