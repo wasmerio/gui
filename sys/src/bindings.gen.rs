@@ -210,6 +210,10 @@ pub const WGUIFeatureName_PixelPresent: WGUIFeatureName = 0x0000001D;
 pub const WGUIFeatureName_EventFd: WGUIFeatureName = 0x0000001E;
 /// Reserved: game controllers.
 pub const WGUIFeatureName_Gamepads: WGUIFeatureName = 0x0000001F;
+/// WindowRedrawRequested says why it came: WGUIEventFlags_FrameCallback when it answers
+/// wguiWindowRequestRedraw, WGUIEventFlags_Exposure when the window has to be shown whole
+/// again. Without this feature, take every redraw as an exposure.
+pub const WGUIFeatureName_RedrawReasons: WGUIFeatureName = 0x00000020;
 
 /// What is behind the window system.
 pub type WGUIHostKind = u32;
@@ -806,6 +810,14 @@ pub const WGUIEventFlags_None: WGUIEventFlags = 0x00000000;
 pub const WGUIEventFlags_Synthetic: WGUIEventFlags = 0x00000001;
 /// Stands for several events of the same kind that the host merged.
 pub const WGUIEventFlags_Coalesced: WGUIEventFlags = 0x00000002;
+/// Only on WindowRedrawRequested, with WGUIFeatureName_RedrawReasons: it answers
+/// wguiWindowRequestRedraw. A time to draw; on its own it does not mean that what the window
+/// showed is gone. Exposure may be set too.
+pub const WGUIEventFlags_FrameCallback: WGUIEventFlags = 0x00000004;
+/// Only on WindowRedrawRequested, with WGUIFeatureName_RedrawReasons: the window has to be
+/// shown whole again. So is the first redraw of a window, the first after its size changed, and
+/// one when it becomes visible again. A merged redraw keeps it.
+pub const WGUIEventFlags_Exposure: WGUIEventFlags = 0x00000008;
 
 /// What a WGUIEventType_WindowResized changed.
 pub type WGUIResizeFlags = u32;

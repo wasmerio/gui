@@ -355,6 +355,7 @@ VALUE(WGUIFeatureName_DragAndDrop, 0x1CULL);
 VALUE(WGUIFeatureName_PixelPresent, 0x1DULL);
 VALUE(WGUIFeatureName_EventFd, 0x1EULL);
 VALUE(WGUIFeatureName_Gamepads, 0x1FULL);
+VALUE(WGUIFeatureName_RedrawReasons, 0x20ULL);
 
 SIZE(WGUIHostKind, 4, 4);
 VALUE(WGUIHostKind_Unknown, 0x0ULL);
@@ -1158,6 +1159,8 @@ int wgui_abi_check_flags(void) {
     wrong += WGUIEventFlags_None != 0x00000000;
     wrong += WGUIEventFlags_Synthetic != 0x00000001;
     wrong += WGUIEventFlags_Coalesced != 0x00000002;
+    wrong += WGUIEventFlags_FrameCallback != 0x00000004;
+    wrong += WGUIEventFlags_Exposure != 0x00000008;
     wrong += WGUIResizeFlags_None != 0x00000000;
     wrong += WGUIResizeFlags_Size != 0x00000001;
     wrong += WGUIResizeFlags_ScaleFactor != 0x00000002;

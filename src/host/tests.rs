@@ -2186,3 +2186,279 @@ fn pace(wait: &str) {
         at(&late, 1.0),
     );
 }
+
+/// A headless system that says it tells redraw reasons, for the sink's side
+/// of them. The headless and native systems do not.
+struct RedrawReasonSystem(HeadlessSystem);
+
+impl WindowSystem for RedrawReasonSystem {
+    fn info(&self) -> SystemInfo {
+        let mut info = self.0.info();
+        info.features.push(FeatureName::RedrawReasons);
+        info
+    }
+    fn now(&self) -> u64 {
+        self.0.now()
+    }
+    fn displays(&self) -> Vec<crate::system::DisplayData> {
+        self.0.displays()
+    }
+    fn attach(&self, instance: crate::system::InstanceSink) {
+        self.0.attach(instance);
+    }
+    fn create_window(
+        &self,
+        attributes: WindowAttributes,
+        sink: WindowSink,
+    ) -> Result<Box<dyn HostWindow>, Status> {
+        self.0.create_window(attributes, sink)
+    }
+}
+
+fn redraw_reason_rig() -> Rig {
+    let system = HeadlessSystem::new(manual());
+    Rig::on(
+        Arc::new(RedrawReasonSystem(system.clone())),
+        system,
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    )
+}
+
+/// A sink of its own for the rig's window, sized, its first redraw (an
+/// exposure) read, and nothing queued.
+fn redraw_sink(rig: &Rig, window: Handle) -> (Arc<super::Window>, WindowSink) {
+    let state = rig.host().window(window).expect("alive");
+    let mut sink = WindowSink::new(&state.instance, &state.shared, modifiers::CONTROL);
+    sink.resized(640, 480, 1.0);
+    sink.redraw_requested();
+    rig.events();
+    (state, sink)
+}
+
+#[test]
+fn a_merged_redraw_keeps_its_exposure_whichever_came_first() {
+    for exposure_first in [false, true] {
+        let rig = redraw_reason_rig();
+        let (window, _) = rig.window();
+        let (_state, mut sink) = redraw_sink(&rig, window);
+        if exposure_first {
+            sink.redraw_requested();
+            sink.frame_callback_requested(false);
+        } else {
+            sink.frame_callback_requested(false);
+            sink.redraw_requested();
+        }
+        let events = rig.events();
+        assert_eq!(events.len(), 1);
+        assert!(matches!(events[0].1, Event::WindowRedrawRequested));
+        assert_eq!(
+            events[0].0.flags,
+            event_flags::FRAME_CALLBACK | event_flags::EXPOSURE | event_flags::COALESCED
+        );
+    }
+}
+
+#[test]
+fn merged_frame_callbacks_are_not_an_exposure() {
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let (_state, mut sink) = redraw_sink(&rig, window);
+    sink.frame_callback_requested(false);
+    sink.frame_callback_requested(false);
+    let events = rig.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::COALESCED
+    );
+    sink.redraw_requested();
+    assert_eq!(rig.events()[0].0.flags, event_flags::EXPOSURE);
+}
+
+#[test]
+fn frame_callbacks_come_only_while_the_window_is_there() {
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let state = rig.host().window(window).expect("alive");
+    let mut sink = WindowSink::new(&state.instance, &state.shared, modifiers::CONTROL);
+    // Not before the window has a size, as with every other redraw.
+    sink.frame_callback_requested(false);
+    assert!(rig.events().is_empty());
+    sink.resized(640, 480, 1.0);
+    rig.events();
+    // The window's first redraw: nothing is drawn in it yet.
+    sink.frame_callback_requested(false);
+    assert_eq!(
+        rig.events()[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+    sink.frame_callback_requested(false);
+    assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+    state.destroy();
+    sink.frame_callback_requested(false);
+    sink.redraw_requested();
+    assert!(rig.events().is_empty());
+}
+
+#[test]
+fn a_window_new_or_resized_is_exposed_at_its_next_redraw() {
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let (_state, mut sink) = redraw_sink(&rig, window);
+    // A canvas is cleared when its size changes: nothing drawn is left.
+    sink.resized(800, 600, 1.0);
+    rig.events();
+    sink.frame_callback_requested(false);
+    assert_eq!(
+        rig.events()[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+    sink.resized(800, 600, 2.0);
+    rig.events();
+    sink.frame_callback_requested(false);
+    assert_eq!(
+        rig.events()[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+    // The same size again changes nothing.
+    sink.resized(800, 600, 2.0);
+    sink.frame_callback_requested(false);
+    assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+}
+
+#[test]
+fn a_system_that_tells_no_reasons_sends_none() {
+    let rig = Rig::new();
+    let (window, _) = rig.window();
+    let (_state, mut sink) = redraw_sink(&rig, window);
+    sink.frame_callback_requested(false);
+    assert_eq!(rig.events()[0].0.flags, 0);
+    sink.redraw_requested();
+    assert_eq!(rig.events()[0].0.flags, 0);
+    // Merged, a redraw says so, as other merged events do.
+    sink.redraw_requested();
+    sink.redraw_requested();
+    assert_eq!(rig.events()[0].0.flags, event_flags::COALESCED);
+    assert!(!rig.host().features().contains(&FeatureName::RedrawReasons));
+}
+
+#[test]
+fn a_resize_exposes_the_redraw_already_waiting() {
+    // The guest has not taken a frame callback yet when the window changes
+    // size: the canvas is cleared, so the redraw it takes is an exposure.
+    for (width, height, scale) in [(800, 600, 1.0), (640, 480, 2.0)] {
+        let rig = redraw_reason_rig();
+        let (window, _) = rig.window();
+        let (_state, mut sink) = redraw_sink(&rig, window);
+        sink.frame_callback_requested(false);
+        sink.resized(width, height, scale);
+        let events = rig.events();
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(events[0].1, Event::WindowResized(_)));
+        assert!(matches!(events[1].1, Event::WindowRedrawRequested));
+        assert_eq!(
+            events[1].0.flags,
+            event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+        );
+        // Told once: the next one is a frame callback again.
+        sink.frame_callback_requested(false);
+        assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+    }
+}
+
+#[test]
+fn a_resize_after_the_guest_took_its_redraw_exposes_the_next() {
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let (_state, mut sink) = redraw_sink(&rig, window);
+    sink.frame_callback_requested(false);
+    assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+    sink.resized(800, 600, 1.0);
+    rig.events();
+    sink.frame_callback_requested(false);
+    assert_eq!(
+        rig.events()[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+}
+
+#[test]
+fn one_call_tells_both_reasons_in_one_redraw() {
+    // What the browser does for a window seen again while the guest's request
+    // waits: the guest reads both reasons in the record it is handed.
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let (_state, mut sink) = redraw_sink(&rig, window);
+    sink.frame_callback_requested(true);
+    let events = rig.events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+}
+
+/// The page resizes the window while the guest's poll is between its two
+/// looks at the window's mailboxes (`take_slots`), and with `then_key` the user
+/// presses a key, which moves the resize to the queue. The guest is handed the
+/// older redraw before the resize either way. That redraw is an exposure (the
+/// canvas was cleared), and so is the first one at the new size, wherever the
+/// resize came from.
+fn resize_between_the_guests_two_looks(then_key: bool) {
+    use std::sync::Barrier;
+    let rig = redraw_reason_rig();
+    let (window, _) = rig.window();
+    let (state, mut sink) = redraw_sink(&rig, window);
+    sink.frame_callback_requested(false);
+    let paused = Arc::new(Barrier::new(2));
+    let resumed = Arc::new(Barrier::new(2));
+    {
+        let (paused, resumed) = (Arc::clone(&paused), Arc::clone(&resumed));
+        *lock(&state.shared.between_looks) = Some(Box::new(move || {
+            paused.wait();
+            resumed.wait();
+        }));
+    }
+    let page = std::thread::spawn(move || {
+        paused.wait();
+        sink.resized(800, 600, 1.0);
+        if then_key {
+            sink.key(key(PhysicalKey::KeyA, true));
+        }
+        resumed.wait();
+        sink
+    });
+    // The guest's poll, which pauses between its looks while the page acts.
+    let events = rig.events();
+    let mut sink = page.join().expect("the page's thread");
+    let names: Vec<_> = events.iter().map(|(_, event)| event.ty().name()).collect();
+    let expected: &[&str] = if then_key {
+        &["WindowRedrawRequested", "WindowResized", "KeyDown"]
+    } else {
+        &["WindowRedrawRequested", "WindowResized"]
+    };
+    assert_eq!(names, expected);
+    assert_eq!(
+        events[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+    // The first frame at the new size.
+    sink.frame_callback_requested(false);
+    assert_eq!(
+        rig.events()[0].0.flags,
+        event_flags::FRAME_CALLBACK | event_flags::EXPOSURE
+    );
+    sink.frame_callback_requested(false);
+    assert_eq!(rig.events()[0].0.flags, event_flags::FRAME_CALLBACK);
+}
+
+#[test]
+fn a_resize_between_the_guests_two_looks_exposes_the_frame_after_it() {
+    resize_between_the_guests_two_looks(false);
+}
+
+#[test]
+fn a_resize_flushed_to_the_queue_by_input_still_exposes_the_frame_after_it() {
+    resize_between_the_guests_two_looks(true);
+}

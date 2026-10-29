@@ -267,6 +267,7 @@ fn info() -> SystemInfo {
             ClipboardText,
             Theme,
             PixelPresent,
+            RedrawReasons,
         ],
         shortcut_modifier: if shortcut_is_command() {
             modifiers::SUPER
@@ -566,6 +567,14 @@ fn change_view(scope: u32, js: &GuiPage, view: ViewId, change: WindowChange) {
 /// alive.
 fn core(scope: u32) -> (JsValue, Vec<Box<dyn std::any::Any>>) {
     let core = Object::new();
+    // Tells the page half that this core takes `redrawFrame`. A number rather
+    // than a look for the function: an embedder's Proxy may answer any name
+    // with one.
+    let _ = Reflect::set(
+        &core,
+        &JsValue::from_str("redrawReasonsVersion"),
+        &JsValue::from_f64(1.0),
+    );
     let mut kept: Vec<Box<dyn std::any::Any>> = Vec::new();
     macro_rules! on {
         ($name:literal, $closure:expr) => {{
@@ -747,6 +756,12 @@ fn core(scope: u32) -> (JsValue, Vec<Box<dyn std::any::Any>>) {
         "redraw",
         Closure::<dyn Fn(f64)>::new(move |view| {
             with_sink(scope, view, WindowSink::redraw_requested);
+        })
+    );
+    on!(
+        "redrawFrame",
+        Closure::<dyn Fn(f64, bool)>::new(move |view, exposure| {
+            with_sink(scope, view, |sink| sink.frame_callback_requested(exposure));
         })
     );
     on!(

@@ -486,9 +486,18 @@ impl WindowSink {
         if before.scale_factor != scale_factor {
             changed |= resize_flags::SCALE_FACTOR;
         }
-        if changed == 0 || !self.wanted(event_class::WINDOW) {
+        if changed == 0 {
             return;
         }
+        if self.wanted(event_class::WINDOW) {
+            self.queue_resize(width, height, scale_factor, changed);
+        }
+        // Only now: a guest that takes the resize with a redraw already
+        // waiting sees that redraw as an exposure (`WindowShared::exposed`).
+        self.window.exposed.store(true, Ordering::Release);
+    }
+
+    fn queue_resize(&mut self, width: u32, height: u32, scale_factor: f64, changed: u32) {
         let resized = self.queued(
             0,
             0,
@@ -635,13 +644,39 @@ impl WindowSink {
         self.emit(0, 0, Event::WindowCloseRequested);
     }
 
-    /// The window can and should be drawn again.
+    /// The window has to be shown whole again: an exposure. A redraw whose
+    /// cause the window system cannot tell is one too.
     pub fn redraw_requested(&mut self) {
+        self.redraw_with_reason(event_flags::EXPOSURE);
+    }
+
+    /// Answers the guest's `wguiWindowRequestRedraw`; on its own, what the
+    /// window showed is still there. `exposure`: the window also has to be
+    /// shown whole again, told in the same redraw. Only a window system that
+    /// knows this, and says so with `WGUIFeatureName_RedrawReasons`, calls it.
+    pub fn frame_callback_requested(&mut self, exposure: bool) {
+        let exposure = if exposure { event_flags::EXPOSURE } else { 0 };
+        self.redraw_with_reason(event_flags::FRAME_CALLBACK | exposure);
+    }
+
+    fn redraw_with_reason(&mut self, reason: u32) {
         if !self.wanted(event_class::WINDOW) {
             return;
         }
-        let redraw = self.queued(0, 0, Event::WindowRedrawRequested);
-        self.window.redraw_slot().put(redraw, |_, new| new);
+        // A new or resized window's exposure is added as the guest takes the
+        // redraw (`WindowShared::exposed`).
+        let reason = if self.instance.redraw_reasons {
+            reason
+        } else {
+            0
+        };
+        let redraw = self.queued(0, reason, Event::WindowRedrawRequested);
+        self.window.redraw_slot().put(redraw, |old, mut new| {
+            // A merged redraw keeps every reason: an exposure still waiting
+            // is not lost to the frame callback that follows it.
+            new.flags |= old.flags | event_flags::COALESCED;
+            new
+        });
         self.instance.wait.notify();
     }
 

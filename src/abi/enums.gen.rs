@@ -165,6 +165,7 @@ pub enum FeatureName {
     PixelPresent = 0x1D,
     EventFd = 0x1E,
     Gamepads = 0x1F,
+    RedrawReasons = 0x20,
 }
 impl Default for FeatureName {
     fn default() -> Self {
@@ -206,6 +207,7 @@ impl AbiEnum for FeatureName {
             0x1D => Self::PixelPresent,
             0x1E => Self::EventFd,
             0x1F => Self::Gamepads,
+            0x20 => Self::RedrawReasons,
             _ => return None,
         })
     }
@@ -245,6 +247,7 @@ impl AbiEnum for FeatureName {
             Self::PixelPresent => "PixelPresent",
             Self::EventFd => "EventFd",
             Self::Gamepads => "Gamepads",
+            Self::RedrawReasons => "RedrawReasons",
         }
     }
 }
@@ -282,6 +285,7 @@ impl FeatureName {
         Self::PixelPresent,
         Self::EventFd,
         Self::Gamepads,
+        Self::RedrawReasons,
     ];
     pub fn from_abi(value: u32) -> AbiResult<Self> {
         Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
@@ -2547,12 +2551,16 @@ pub mod event_flags {
     pub const NONE: u32 = 0x0;
     pub const SYNTHETIC: u32 = 0x1;
     pub const COALESCED: u32 = 0x2;
+    pub const FRAME_CALLBACK: u32 = 0x4;
+    pub const EXPOSURE: u32 = 0x8;
     /// Every bit this version defines.
-    pub const KNOWN: u32 = 0x3;
+    pub const KNOWN: u32 = 0xF;
     /// (name, bits) of the single-purpose entries, for printing.
     pub const NAMES: &[(&str, u32)] = &[
         ("Synthetic", 0x1),
         ("Coalesced", 0x2),
+        ("FrameCallback", 0x4),
+        ("Exposure", 0x8),
     ];
 }
 

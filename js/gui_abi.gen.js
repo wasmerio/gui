@@ -58,6 +58,7 @@ export const FeatureName = Object.freeze({
   PixelPresent: 0x1D,
   EventFd: 0x1E,
   Gamepads: 0x1F,
+  RedrawReasons: 0x20,
 });
 
 export const HostKind = Object.freeze({
@@ -329,6 +330,8 @@ export const EventFlags = Object.freeze({
   None: 0x0,
   Synthetic: 0x1,
   Coalesced: 0x2,
+  FrameCallback: 0x4,
+  Exposure: 0x8,
 });
 
 // 32 bits

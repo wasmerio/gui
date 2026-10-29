@@ -220,7 +220,9 @@ pub enum WindowChange {
     },
     Focus,
     Attention(AttentionLevel),
-    /// Report [`WindowSink::redraw_requested`] when the window can be drawn.
+    /// Report [`WindowSink::redraw_requested`] when the window can be drawn,
+    /// or [`WindowSink::frame_callback_requested`] if the system has
+    /// [`FeatureName::RedrawReasons`]: the redraw only answers this request.
     #[non_exhaustive]
     Redraw {
         /// The guest asked before it waited for events on the window's
