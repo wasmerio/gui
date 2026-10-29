@@ -444,7 +444,8 @@
         { "name": "drag_and_drop", "doc": "Reserved: dragging to and from windows." },
         { "name": "pixel_present", "doc": "wguiWindowPresentPixels: showing frames the program drew itself, without a GPU." },
         { "name": "event_fd", "doc": "Reserved: a file descriptor that becomes readable when events are queued." },
-        { "name": "gamepads", "doc": "Reserved: game controllers." }
+        { "name": "gamepads", "doc": "Reserved: game controllers." },
+        { "name": "redraw_reasons", "doc": "WindowRedrawRequested says why it came: WGUIEventFlags_FrameCallback when it answers wguiWindowRequestRedraw, WGUIEventFlags_Exposure when the window has to be shown whole again. Without this feature, take every redraw as an exposure." }
       ]
     },
     {
@@ -759,7 +760,9 @@
       "entries": [
         { "name": "none", "doc": "" },
         { "name": "synthetic", "doc": "Made by the host to keep the program's view consistent (a key release on focus loss), not caused by the user just now." },
-        { "name": "coalesced", "doc": "Stands for several events of the same kind that the host merged." }
+        { "name": "coalesced", "doc": "Stands for several events of the same kind that the host merged." },
+        { "name": "frame_callback", "doc": "Only on WindowRedrawRequested, with WGUIFeatureName_RedrawReasons: it answers wguiWindowRequestRedraw. A time to draw; on its own it does not mean that what the window showed is gone. Exposure may be set too." },
+        { "name": "exposure", "doc": "Only on WindowRedrawRequested, with WGUIFeatureName_RedrawReasons: the window has to be shown whole again. So is the first redraw of a window, the first after its size changed, and one when it becomes visible again. A merged redraw keeps it." }
       ]
     },
     {

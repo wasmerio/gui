@@ -49,7 +49,7 @@ static inline const char* wguiSTypeName(WGUISType value) {
 }
 
 /**
- * The name of a WGUIFeatureName without its prefix ("Gamepads"), or NULL for a value this
+ * The name of a WGUIFeatureName without its prefix ("RedrawReasons"), or NULL for a value this
  * header does not know.
  */
 static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
@@ -85,6 +85,7 @@ static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
         case 0x0000001D: return "PixelPresent";
         case 0x0000001E: return "EventFd";
         case 0x0000001F: return "Gamepads";
+        case 0x00000020: return "RedrawReasons";
         default: return NULL;
     }
 }
@@ -1024,10 +1025,10 @@ static inline WGUIWaitReasons wguiWaitReasonsValue(size_t index) {
     return index < 3 ? values[index] : 0;
 }
 
-WGUI_FLAG_NAMES(EventFlags, 2, "Synthetic", "Coalesced")
+WGUI_FLAG_NAMES(EventFlags, 4, "Synthetic", "Coalesced", "FrameCallback", "Exposure")
 static inline WGUIEventFlags wguiEventFlagsValue(size_t index) {
-    static const WGUIEventFlags values[] = {0x00000001, 0x00000002};
-    return index < 2 ? values[index] : 0;
+    static const WGUIEventFlags values[] = {0x00000001, 0x00000002, 0x00000004, 0x00000008};
+    return index < 4 ? values[index] : 0;
 }
 
 WGUI_FLAG_NAMES(ResizeFlags, 2, "Size", "ScaleFactor")

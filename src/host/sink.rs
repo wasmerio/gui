@@ -323,6 +323,13 @@ pub struct WindowSink {
     window: Arc<WindowShared>,
     /// The modifier the platform's shortcuts use, for spotting a paste.
     shortcut_modifier: u32,
+    /// The window system tells why a window is redrawn
+    /// (`WGUIFeatureName_RedrawReasons`): only then do redraws carry a reason.
+    redraw_reasons: bool,
+    /// Nothing the guest drew is in the window at its present size: a new
+    /// window, or one whose size changed (a canvas is cleared then). Its next
+    /// redraw is an exposure, whatever else it is.
+    exposed: bool,
     /// The resync epoch this sink has caught up with.
     epoch: u32,
     /// The window's size has been reported at least once.
@@ -349,6 +356,12 @@ impl WindowSink {
             instance: Arc::clone(instance),
             window: Arc::clone(window),
             shortcut_modifier,
+            redraw_reasons: instance
+                .system
+                .info()
+                .features
+                .contains(&FeatureName::RedrawReasons),
+            exposed: true,
             epoch: instance.resync_epoch.load(Ordering::Acquire),
             sized: false,
             focused: false,
@@ -485,6 +498,9 @@ impl WindowSink {
         }
         if before.scale_factor != scale_factor {
             changed |= resize_flags::SCALE_FACTOR;
+        }
+        if changed != 0 {
+            self.exposed = true;
         }
         if changed == 0 || !self.wanted(event_class::WINDOW) {
             return;
@@ -635,13 +651,35 @@ impl WindowSink {
         self.emit(0, 0, Event::WindowCloseRequested);
     }
 
-    /// The window can and should be drawn again.
+    /// The window has to be shown whole again: an exposure. A redraw whose
+    /// cause the window system cannot tell is one too.
     pub fn redraw_requested(&mut self) {
+        self.redraw_with_reason(event_flags::EXPOSURE);
+    }
+
+    /// Answers the guest's `wguiWindowRequestRedraw` and nothing more: what the
+    /// window showed is still there. Only a window system that knows this, and
+    /// says so with `WGUIFeatureName_RedrawReasons`, calls it.
+    pub fn frame_callback_requested(&mut self) {
+        self.redraw_with_reason(event_flags::FRAME_CALLBACK);
+    }
+
+    fn redraw_with_reason(&mut self, reason: u32) {
         if !self.wanted(event_class::WINDOW) {
             return;
         }
-        let redraw = self.queued(0, 0, Event::WindowRedrawRequested);
-        self.window.redraw_slot().put(redraw, |_, new| new);
+        let reason = match self.redraw_reasons {
+            true if std::mem::take(&mut self.exposed) => reason | event_flags::EXPOSURE,
+            true => reason,
+            false => 0,
+        };
+        let redraw = self.queued(0, reason, Event::WindowRedrawRequested);
+        self.window.redraw_slot().put(redraw, |old, mut new| {
+            // A merged redraw keeps every reason: an exposure still waiting
+            // is not lost to the frame callback that follows it.
+            new.flags |= old.flags | event_flags::COALESCED;
+            new
+        });
         self.instance.wait.notify();
     }
 

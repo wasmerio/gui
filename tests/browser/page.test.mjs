@@ -47,12 +47,16 @@ const PAGE = `<!doctype html>
   import { createGuiPage } from "/js/gui_page.js";
   import * as abi from "/js/gui_abi.gen.js";
 
-  // A core that writes down what it is told, as [name, ...arguments].
+  // A core that writes down what it is told, as [name, ...arguments]. It
+  // says it tells redraw reasons only when a test sets harness.reasonsVersion.
   const calls = [];
   const core = new Proxy({}, {
-    get: (_, name) => (...args) => {
-      calls.push([name, ...args.map((arg) => (ArrayBuffer.isView(arg) ? Array.from(arg) : arg))]);
-    },
+    get: (_, name) =>
+      name === "redrawReasonsVersion"
+        ? globalThis.harness.reasonsVersion
+        : (...args) => {
+            calls.push([name, ...args.map((arg) => (ArrayBuffer.isView(arg) ? Array.from(arg) : arg))]);
+          },
   });
   const aliases = new Map();
   const titles = [];
@@ -494,6 +498,72 @@ test("a canvas nobody can see says so, and asks to be drawn when it can be", { s
   await until(page, () => harness.calls.some((call) => call[0] === "redraw"));
   await page.waitForTimeout(50);
   assert.deepEqual(await page.evaluate(() => harness.take("redraw")), [[1]]);
+  assert.deepEqual(errors, []);
+});
+
+test("a core that tells redraw reasons hears which redraws only answer a request", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  await page.evaluate(() => {
+    harness.reasonsVersion = 1;
+    harness.open().createWindow(1, { target: "" });
+    harness.calls.length = 0;
+  });
+  // The answer to the guest's request is a frame callback.
+  await page.evaluate(() => gui.requestRedraw(1));
+  await until(page, () => harness.calls.some((call) => call[0] === "redrawFrame"));
+  assert.deepEqual(await page.evaluate(() => [harness.take("redrawFrame"), harness.take("redraw")]), [[[1]], []]);
+  // Seen again, the window is exposed: a plain redraw.
+  await page.evaluate(() => window.scrollTo(0, 2000));
+  await until(page, () => harness.calls.some((call) => call[0] === "flags"));
+  await page.evaluate(() => {
+    harness.take("flags");
+    window.scrollTo(0, 0);
+  });
+  await until(page, () => harness.calls.some((call) => call[0] === "redraw"));
+  assert.deepEqual(await page.evaluate(() => [harness.take("redraw"), harness.take("redrawFrame")]), [[[1]], []]);
+  // A core that does not say so (any other value) only ever hears redraws.
+  await page.evaluate(() => {
+    harness.reasonsVersion = 2;
+    gui.requestRedraw(1);
+  });
+  await until(page, () => harness.calls.some((call) => call[0] === "redraw"));
+  assert.deepEqual(await page.evaluate(() => [harness.take("redraw"), harness.take("redrawFrame")]), [[[1]], []]);
+  assert.deepEqual(errors, []);
+});
+
+test("a window seen again while its request waits hears both reasons, and an eager answer is a frame callback", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  await page.evaluate(async () => {
+    harness.reasonsVersion = 1;
+    harness.open().createWindow(1, { target: "" });
+    await harness.nextFrame();
+    harness.calls.length = 0;
+    window.scrollTo(0, 2000);
+  });
+  await until(page, () => harness.calls.some((call) => call[0] === "flags"));
+  const told = await page.evaluate(async () => {
+    const frame = () => new Promise((done) => requestAnimationFrame(() => done()));
+    await frame();
+    harness.calls.length = 0;
+    // The guest asks while nobody can see the window, which is seen again
+    // about then: whichever comes first, the frame or being seen, the guest
+    // hears that its request is answered and that the window is exposed.
+    gui.requestRedraw(1);
+    window.scrollTo(0, 0);
+    for (let n = 0; n < 5; n++) await frame();
+    const seen = [harness.take("redrawFrame"), harness.take("redraw")];
+    // Answered at once for what the user did, it is a frame callback too.
+    gui.options.eagerRedraw = true;
+    harness.touch();
+    gui.requestRedraw(1);
+    await null;
+    return [...seen, harness.take("redrawFrame"), harness.take("redraw")];
+  });
+  assert.deepEqual(told, [[[1]], [[1]], [[1]], []]);
   assert.deepEqual(errors, []);
 });
 

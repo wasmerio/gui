@@ -611,14 +611,26 @@ class GuiPage {
 
   /**
    * Tells the guest to redraw a window, which answers the request it has
-   * waiting, if any.
+   * waiting, if any. `exposure`: the window has to be shown whole again,
+   * rather than only answering the request.
    */
-  deliverRedraw(view) {
+  deliverRedraw(view, exposure = false) {
+    const answering = view.redrawAsked;
     if (view.redrawFrame !== undefined) this.window.cancelAnimationFrame?.(view.redrawFrame);
     view.redrawFrame = undefined;
     view.redrawAsked = false;
     view.inputSinceRedraw = false;
-    if (this.views.get(view.id) === view) this.core.redraw(view.id);
+    if (this.views.get(view.id) !== view) return;
+    // A core that tells the guest why (`redrawReasonsVersion` 1) hears each
+    // reason: the answer to the guest's request, and an exposure. The host
+    // merges the two into one redraw. Any other core gets a plain redraw,
+    // which the guest takes as an exposure.
+    if (this.core.redrawReasonsVersion === 1 && typeof this.core.redrawFrame === "function") {
+      if (answering || !exposure) this.core.redrawFrame(view.id);
+      if (exposure) this.core.redraw(view.id);
+    } else {
+      this.core.redraw(view.id);
+    }
   }
 
   /** The user did something to a window. */
@@ -931,7 +943,7 @@ class GuiPage {
     view.occluded = occluded;
     this.core.flags(view.id, FLAG_OCCLUDED, occluded ? FLAG_OCCLUDED : 0);
     // What was drawn while nobody could see it went nowhere.
-    if (!occluded) this.deliverRedraw(view);
+    if (!occluded) this.deliverRedraw(view, true);
   }
 
   applyCursor(view) {
