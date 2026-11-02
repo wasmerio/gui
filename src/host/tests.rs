@@ -2462,3 +2462,204 @@ fn a_resize_between_the_guests_two_looks_exposes_the_frame_after_it() {
 fn a_resize_flushed_to_the_queue_by_input_still_exposes_the_frame_after_it() {
     resize_between_the_guests_two_looks(true);
 }
+
+/// A headless system that has title bars the guest draws (only `Custom`
+/// unless `overlay`), and keeps what windows were opened with and every set
+/// of drag regions they were given. The overlay's area is made up: 80 pixels
+/// of controls and a 48 pixel tall title bar on a 640 pixel wide window.
+struct TitleBarSystem {
+    headless: HeadlessSystem,
+    overlay: bool,
+    asked: Arc<Mutex<Vec<String>>>,
+}
+
+struct TitleBarWindow(Box<dyn HostWindow>, Arc<Mutex<Vec<String>>>);
+
+impl HostWindow for TitleBarWindow {
+    fn apply(&self, change: WindowChange) {
+        match change {
+            WindowChange::DragRegions(regions) => lock(&self.1).push(format!(
+                "drag {}",
+                regions
+                    .iter()
+                    .map(|r| format!("{},{} {}x{}", r.x, r.y, r.width, r.height))
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            )),
+            change => self.0.apply(change),
+        }
+    }
+    fn surface_selector(&self) -> String {
+        self.0.surface_selector()
+    }
+}
+
+impl WindowSystem for TitleBarSystem {
+    fn info(&self) -> SystemInfo {
+        let mut info = self.headless.info();
+        info.features
+            .extend([FeatureName::TitleBarCustom, FeatureName::DragRegions]);
+        if self.overlay {
+            info.features.push(FeatureName::TitleBarOverlay);
+        }
+        info
+    }
+    fn now(&self) -> u64 {
+        self.headless.now()
+    }
+    fn displays(&self) -> Vec<crate::system::DisplayData> {
+        self.headless.displays()
+    }
+    fn attach(&self, instance: crate::system::InstanceSink) {
+        self.headless.attach(instance);
+    }
+    fn create_window(
+        &self,
+        attributes: WindowAttributes,
+        mut sink: WindowSink,
+    ) -> Result<Box<dyn HostWindow>, Status> {
+        lock(&self.asked).push(format!(
+            "open {:?} {}",
+            attributes.title_bar, attributes.title_bar_height
+        ));
+        // Before the size, as a window system has to.
+        sink.title_bar(attributes.title_bar, [80, 0, 560, 48]);
+        let window = self.headless.create_window(attributes, sink)?;
+        Ok(Box::new(TitleBarWindow(window, Arc::clone(&self.asked))))
+    }
+}
+
+fn title_bar_rig(overlay: bool) -> (Rig, Arc<Mutex<Vec<String>>>) {
+    let headless = HeadlessSystem::new(manual());
+    let asked = Arc::default();
+    let rig = Rig::on(
+        Arc::new(TitleBarSystem {
+            headless: headless.clone(),
+            overlay,
+            asked: Arc::clone(&asked),
+        }),
+        headless,
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    (rig, asked)
+}
+
+fn title_bar_window(rig: &Rig, style: TitleBarStyle) -> Handle {
+    let window = rig
+        .host()
+        .create_window(
+            rig.instance,
+            Some(&WindowDescriptor {
+                flags: window_flags::VISIBLE | window_flags::RESIZABLE | window_flags::DECORATED,
+                title_bar: style,
+                title_bar_height: 48,
+                ..WindowDescriptor::default()
+            }),
+        )
+        .expect("a window");
+    rig.events();
+    window
+}
+
+#[test]
+fn a_title_bar_the_host_does_not_have_is_the_systems() {
+    let (rig, asked) = title_bar_rig(false);
+    let window = title_bar_window(&rig, TitleBarStyle::Overlay);
+    // Not an error: the window system is asked for its own title bar, and
+    // the guest reads which it got.
+    assert_eq!(*lock(&asked), ["open System 48"]);
+    let data = rig
+        .host()
+        .window(window)
+        .expect("alive")
+        .shared
+        .snapshot
+        .read();
+    assert_eq!(data.title_bar, TitleBarStyle::System);
+    assert_eq!(data.title_bar_area, [0; 4]);
+}
+
+#[test]
+fn a_title_bar_the_guest_draws_comes_with_its_part_and_changes_to_it() {
+    let (rig, asked) = title_bar_rig(true);
+    let window = title_bar_window(&rig, TitleBarStyle::Overlay);
+    assert_eq!(*lock(&asked), ["open Overlay 48"]);
+    let state = rig.host().window(window).expect("alive");
+    let data = state.shared.snapshot.read();
+    assert_eq!(data.title_bar, TitleBarStyle::Overlay);
+    assert_eq!(data.title_bar_area, [80, 0, 560, 48]);
+    // What the guest read with the window's size was announced with it.
+    assert!(rig.events().is_empty());
+
+    // Fullscreen hides it: announced once, however often it is said.
+    let mut sink = WindowSink::new(&state.instance, &state.shared, modifiers::CONTROL);
+    sink.resized(640, 480, 1.0);
+    rig.events();
+    sink.title_bar(TitleBarStyle::Overlay, [0; 4]);
+    sink.title_bar(TitleBarStyle::Overlay, [0; 4]);
+    assert_eq!(rig.names(), ["WindowTitleBarChanged"]);
+    assert_eq!(state.shared.snapshot.read().title_bar_area, [0; 4]);
+    // A system title bar has no part of the content area.
+    sink.title_bar(TitleBarStyle::System, [1, 2, 3, 4]);
+    assert_eq!(rig.names(), ["WindowTitleBarChanged"]);
+    assert_eq!(state.shared.snapshot.read().title_bar_area, [0; 4]);
+}
+
+#[test]
+fn custom_title_bars_are_asked_for_where_overlays_are_not() {
+    let (rig, asked) = title_bar_rig(false);
+    let window = title_bar_window(&rig, TitleBarStyle::Custom);
+    assert_eq!(*lock(&asked), ["open Custom 48"]);
+    let data = rig
+        .host()
+        .window(window)
+        .expect("alive")
+        .shared
+        .snapshot
+        .read();
+    assert_eq!(data.title_bar, TitleBarStyle::Custom);
+}
+
+#[test]
+fn drag_regions_reach_a_system_that_has_them_and_none_other() {
+    let regions = [
+        Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 48,
+        },
+        Rect {
+            x: 300,
+            y: 0,
+            width: 20,
+            height: 48,
+        },
+    ];
+    let (rig, asked) = title_bar_rig(false);
+    let window = title_bar_window(&rig, TitleBarStyle::Custom);
+    let status = rig.call(|host, cx| host.window_set_drag_regions(cx, window, &regions));
+    assert_eq!(status.expect("no trap"), Status::Success);
+    let status = rig.call(|host, cx| host.window_set_drag_regions(cx, window, &[]));
+    assert_eq!(status.expect("no trap"), Status::Success);
+    assert_eq!(lock(&asked)[1..], ["drag 0,0 100x48; 300,0 20x48", "drag "]);
+
+    let rig = Rig::new();
+    let (window, _) = rig.window();
+    let status = rig.call(|host, cx| host.window_set_drag_regions(cx, window, &regions));
+    assert_eq!(status.expect("no trap"), Status::Unsupported);
+    let status = rig.call(|host, cx| host.window_set_drag_regions(cx, 0, &regions));
+    assert_eq!(status.expect("no trap"), Status::InvalidHandle);
+}
+
+#[test]
+fn a_guest_of_another_minor_version_is_refused_before_1_0() {
+    let rig = Rig::new();
+    let other = InstanceDescriptor {
+        abi_version: ABI_VERSION - 1,
+        event_mask: event_class::DEFAULT,
+        ..InstanceDescriptor::default()
+    };
+    assert_eq!(rig.host().open_instance(&other), Err(Status::Unsupported));
+}

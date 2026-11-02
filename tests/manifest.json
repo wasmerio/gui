@@ -18,6 +18,7 @@
     {"name": "scale", "program": "events", "script": "scale", "args": ["--logical", "--size", "400x300", "--target", "canvas"]},
     {"name": "raw", "program": "events", "script": "raw", "args": ["--raw"]},
     {"name": "window_smoke", "program": "window_smoke"},
-    {"name": "pixels", "program": "pixels"}
+    {"name": "pixels", "program": "pixels"},
+    {"name": "title_bar_fallback", "program": "title_bar", "args": ["overlay", "--once"]}
   ]
 }

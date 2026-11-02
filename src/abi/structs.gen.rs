@@ -122,7 +122,7 @@ impl GuestWrite for DisplayInfo {
     }
 }
 
-/// `WGUIWindowDescriptor`: 72 bytes, align 8 on wasm32.
+/// `WGUIWindowDescriptor`: 80 bytes, align 8 on wasm32.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WindowDescriptor {
     pub title: String,
@@ -138,11 +138,13 @@ pub struct WindowDescriptor {
     pub x: i32,
     pub y: i32,
     pub display: u32,
+    pub title_bar: TitleBarStyle,
+    pub title_bar_height: u32,
 }
 impl GuestRead for WindowDescriptor {
-    const SIZE: u32 = 72;
+    const SIZE: u32 = 80;
     fn read(mem: &GuestMemory<'_>, ptr: u32) -> AbiResult<Self> {
-        let b = mem.read_bytes::<72>(ptr)?;
+        let b = mem.read_bytes::<80>(ptr)?;
         mem.check_chain(rd_u32(&b, 0))?;
         Ok(Self {
             title: mem.read_string(rd_u32(&b, 4), rd_u32(&b, 8))?,
@@ -158,11 +160,13 @@ impl GuestRead for WindowDescriptor {
             x: rd_u32(&b, 60) as i32,
             y: rd_u32(&b, 64) as i32,
             display: rd_u32(&b, 68),
+            title_bar: TitleBarStyle::from_abi(rd_u32(&b, 72))?,
+            title_bar_height: rd_u32(&b, 76),
         })
     }
 }
 
-/// `WGUIWindowState`: 96 bytes, align 8 on wasm32.
+/// `WGUIWindowState`: 112 bytes, align 8 on wasm32.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WindowState {
     pub width: u32,
@@ -183,13 +187,18 @@ pub struct WindowState {
     pub fullscreen: FullscreenMode,
     pub cursor_grab: CursorGrab,
     pub theme: Theme,
+    pub title_bar: TitleBarStyle,
+    pub title_bar_x: u32,
+    pub title_bar_y: u32,
+    pub title_bar_width: u32,
+    pub title_bar_height: u32,
     pub serial: u32,
 }
 impl GuestWrite for WindowState {
-    const SIZE: u32 = 96;
+    const SIZE: u32 = 112;
     /// Stores the members, leaving `nextInChain` and padding as the guest set them.
     fn write(&self, mem: &GuestMemory<'_>, ptr: u32) -> AbiResult<()> {
-        let mut b = mem.read_bytes::<96>(ptr)?;
+        let mut b = mem.read_bytes::<112>(ptr)?;
         wr_u32(&mut b, 4, self.width);
         wr_u32(&mut b, 8, self.height);
         wr_u64(&mut b, 16, self.scale_factor.to_bits());
@@ -208,7 +217,12 @@ impl GuestWrite for WindowState {
         wr_u32(&mut b, 76, self.fullscreen.as_u32());
         wr_u32(&mut b, 80, self.cursor_grab.as_u32());
         wr_u32(&mut b, 84, self.theme.as_u32());
-        wr_u32(&mut b, 88, self.serial);
+        wr_u32(&mut b, 88, self.title_bar.as_u32());
+        wr_u32(&mut b, 92, self.title_bar_x);
+        wr_u32(&mut b, 96, self.title_bar_y);
+        wr_u32(&mut b, 100, self.title_bar_width);
+        wr_u32(&mut b, 104, self.title_bar_height);
+        wr_u32(&mut b, 108, self.serial);
         mem.write_bytes(ptr, &b)?;
         Ok(())
     }

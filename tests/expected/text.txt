@@ -1,4 +1,4 @@
-host Headless, version 0.1
+host Headless, version 0.2
 WindowResized w1 800x600 scale=1 changed=Size|ScaleFactor [Synthetic]
 WindowFocusGained w1
 KeyDown w1 KeyA key='a' text="a"

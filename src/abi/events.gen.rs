@@ -600,6 +600,7 @@ pub enum Event {
     WindowThemeChanged(ThemeEvent),
     WindowCursorGrabChanged(WindowCursorGrabChangedEvent),
     WindowLost,
+    WindowTitleBarChanged,
     KeyDown(KeyEvent),
     KeyUp(KeyEvent),
     ModifiersChanged(ModifiersChangedEvent),
@@ -642,6 +643,7 @@ impl Event {
             Self::WindowThemeChanged(_) => EventType::WindowThemeChanged,
             Self::WindowCursorGrabChanged(_) => EventType::WindowCursorGrabChanged,
             Self::WindowLost => EventType::WindowLost,
+            Self::WindowTitleBarChanged => EventType::WindowTitleBarChanged,
             Self::KeyDown(_) => EventType::KeyDown,
             Self::KeyUp(_) => EventType::KeyUp,
             Self::ModifiersChanged(_) => EventType::ModifiersChanged,
@@ -690,6 +692,7 @@ impl Event {
             Self::WindowThemeChanged(_) => ThemeEvent::SIZE,
             Self::WindowCursorGrabChanged(_) => WindowCursorGrabChangedEvent::SIZE,
             Self::WindowLost => HEADER_SIZE,
+            Self::WindowTitleBarChanged => HEADER_SIZE,
             Self::KeyDown(_) => KeyEvent::SIZE,
             Self::KeyUp(_) => KeyEvent::SIZE,
             Self::ModifiersChanged(_) => ModifiersChangedEvent::SIZE,
@@ -747,7 +750,8 @@ impl Event {
             | Self::WindowFocusLost
             | Self::WindowCloseRequested
             | Self::WindowRedrawRequested
-            | Self::WindowLost => {}
+            | Self::WindowLost
+            | Self::WindowTitleBarChanged => {}
         }
         b.resize(b.len().next_multiple_of(8), 0);
         let size = b.len();
@@ -818,6 +822,7 @@ impl Event {
                 Self::WindowCursorGrabChanged(WindowCursorGrabChangedEvent::load(b)?)
             }
             EventType::WindowLost => Self::WindowLost,
+            EventType::WindowTitleBarChanged => Self::WindowTitleBarChanged,
             EventType::KeyDown => {
                 fits(KeyEvent::SIZE)?;
                 Self::KeyDown(KeyEvent::load(b)?)

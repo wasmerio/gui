@@ -63,6 +63,7 @@ int main(void) {
     printf("wguiWindowSetPosition: %s\n", status_name(wguiWindowSetPosition((WGUIWindow)0, 0, 0)));
     printf("wguiWindowSetFlags: %s\n", status_name(wguiWindowSetFlags((WGUIWindow)0, (WGUIWindowFlags)0, (WGUIWindowFlags)0, NULL)));
     printf("wguiWindowSetFullscreen: %s\n", status_name(wguiWindowSetFullscreen((WGUIWindow)0, NULL, 0)));
+    printf("wguiWindowSetDragRegions: %s\n", status_name(wguiWindowSetDragRegions((WGUIWindow)0, 0, NULL)));
     printf("wguiWindowFocus: %s\n", status_name(wguiWindowFocus((WGUIWindow)0)));
     printf("wguiWindowRequestAttention: %s\n", status_name(wguiWindowRequestAttention((WGUIWindow)0, (WGUIAttentionLevel)0)));
     printf("wguiWindowRequestRedraw: %s\n", status_name(wguiWindowRequestRedraw((WGUIWindow)0)));
@@ -77,6 +78,6 @@ int main(void) {
     printf("wguiWindowPresentPixels: %s\n", status_name(wguiWindowPresentPixels((WGUIWindow)0, NULL, 0, NULL)));
     wguiCursorDestroy((WGUICursor)0);
     printf("wguiCursorDestroy: returned\n");
-    printf("42 functions\n");
+    printf("43 functions\n");
     return 0;
 }

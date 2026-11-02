@@ -552,12 +552,14 @@ fn change_view(scope: u32, js: &GuiPage, view: ViewId, change: WindowChange) {
         WindowChange::ResetTextInput => js.reset_text_input(id),
         WindowChange::DefaultActions(actions) => js.set_default_actions(id, actions),
         // A canvas is where the page put it, as big as its layout makes it
-        // and as visible as the page is: none of these is the guest's.
+        // and as visible as the page is: none of these is the guest's. Nor is
+        // moving it (drag regions are not offered: the tab has the title bar).
         WindowChange::SizeLimits { .. }
         | WindowChange::Position { .. }
         | WindowChange::Flags { .. }
         | WindowChange::Attention(_)
-        | WindowChange::CursorPosition { .. } => {}
+        | WindowChange::CursorPosition { .. }
+        | WindowChange::DragRegions(_) => {}
         // Frames come by themselves (`ViewCommand::Frame`).
         WindowChange::Pixels(_) => {}
     }

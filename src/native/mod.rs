@@ -34,6 +34,7 @@ mod keys;
 mod pixels;
 #[cfg(feature = "webgpu")]
 mod surface;
+mod title_bar;
 
 use std::collections::VecDeque;
 use std::sync::mpsc::{self, SyncSender};
@@ -457,6 +458,12 @@ impl WindowSystem for WinitSystem {
         }
         if cfg!(feature = "pixels") {
             features.push(PixelPresent);
+        }
+        // Title bars the guest draws (title_bar.rs): over the system's
+        // controls only on macOS; without any elsewhere.
+        features.extend([TitleBarCustom, DragRegions]);
+        if mac {
+            features.push(TitleBarOverlay);
         }
         SystemInfo {
             host_kind: HostKind::Desktop,

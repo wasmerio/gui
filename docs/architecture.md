@@ -136,6 +136,41 @@ only creating a window and attaching a surface wait for an answer. A WebGPU
 surface is attached on the loop's thread and released there, wherever the
 guest drops it.
 
+### Title bars the program draws
+
+A program can ask for its window's title bar to be its own
+(`WGUIWindowDescriptor.titleBar`), as browsers and editors draw tabs and
+toolbars there:
+
+- `Overlay`: the content area takes the whole window and the system's window
+  controls stay, over it. Only macOS has it: a transparent title bar over a
+  full-size content view, with the traffic lights moved to the middle of the
+  title bar the program draws (`titleBarHeight`). AppKit puts them back in
+  their usual place whenever it lays the title bar out (a resize, leaving
+  fullscreen), so the loop moves them again then.
+- `Custom`: no title bar or window controls of the system's; the program
+  draws its own. Windows and Linux have it as a window without decorations,
+  which the host resizes from a band along its edges; macOS as `Overlay` with
+  the traffic lights hidden. Windows cannot keep its own caption buttons over
+  content drawn with a GPU (it draws them under the client area), and X11
+  and Wayland draw none inside it, which is why they have no `Overlay`.
+
+A host without the style asked for gives the window the system's title bar,
+and the window's state says which style it got and what part of the title bar
+is the program's to draw in (empty in fullscreen, where the title bar hides).
+A browser page offers neither: the tab has the title bar.
+
+The program marks where its title bar moves the window
+(`wguiWindowSetDragRegions`). The host hit-tests presses against those
+rectangles on the loop's thread and starts the move itself, while the press
+is the event being handled: winit's `drag_window` takes the current event, so
+a request coming back from a guest's thread would be too late. A double click
+there zooms, maximizes or minimizes as the user's settings say, but does
+not zoom a window that is not resizable: winit would, by setting its frame.
+A press finds the edge it resizes a `Custom` window by from the window's
+size and state at the press, not from the cursor shown, as the window may
+have changed under a pointer that has not moved since.
+
 ### Frames without a GPU
 
 `wguiWindowPresentPixels` copies the guest's frame out of its memory during

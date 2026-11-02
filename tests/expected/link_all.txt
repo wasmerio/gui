@@ -1,4 +1,4 @@
-host version 0.1
+host version 0.2
 wguiHasFeature: false
 wguiGetFeatures: InvalidArgument
 wguiCreateInstance: InvalidArgument
@@ -27,6 +27,7 @@ wguiWindowSetSizeLimits: InvalidHandle
 wguiWindowSetPosition: InvalidHandle
 wguiWindowSetFlags: InvalidHandle
 wguiWindowSetFullscreen: InvalidHandle
+wguiWindowSetDragRegions: InvalidHandle
 wguiWindowFocus: InvalidHandle
 wguiWindowRequestAttention: InvalidHandle
 wguiWindowRequestRedraw: InvalidHandle
@@ -40,4 +41,4 @@ wguiWindowResetTextInput: InvalidHandle
 wguiWindowSetDefaultActions: InvalidHandle
 wguiWindowPresentPixels: InvalidArgument
 wguiCursorDestroy: returned
-42 functions
+43 functions

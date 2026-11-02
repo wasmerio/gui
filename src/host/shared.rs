@@ -113,6 +113,9 @@ pub(crate) struct WindowData {
     pub cursor_grab: CursorGrab,
     pub theme: Theme,
     pub modifiers: u32,
+    pub title_bar: TitleBarStyle,
+    /// The part of the title bar that is the guest's: x, y, width, height.
+    pub title_bar_area: [u32; 4],
     /// Goes up with every change.
     pub serial: u32,
 }
@@ -133,12 +136,14 @@ impl Default for WindowData {
             cursor_grab: CursorGrab::None,
             theme: Theme::Unknown,
             modifiers: 0,
+            title_bar: TitleBarStyle::System,
+            title_bar_area: [0; 4],
             serial: 0,
         }
     }
 }
 
-const SNAPSHOT_WORDS: usize = 12;
+const SNAPSHOT_WORDS: usize = 15;
 
 fn pair(low: u32, high: u32) -> u64 {
     u64::from(low) | (u64::from(high) << 32)
@@ -182,6 +187,9 @@ impl Snapshot {
             pair(data.fullscreen as u32, data.cursor_grab as u32),
             pair(data.theme as u32, data.modifiers),
             u64::from(data.serial),
+            u64::from(data.title_bar as u32),
+            pair(data.title_bar_area[0], data.title_bar_area[1]),
+            pair(data.title_bar_area[2], data.title_bar_area[3]),
         ];
         self.sequence.fetch_add(1, Ordering::AcqRel);
         for (slot, word) in self.words.iter().zip(words) {
@@ -210,6 +218,8 @@ impl Snapshot {
             let (safe_right, safe_bottom) = unpair(words[6]);
             let (fullscreen, cursor_grab) = unpair(words[9]);
             let (theme, modifiers) = unpair(words[10]);
+            let (title_bar_x, title_bar_y) = unpair(words[13]);
+            let (title_bar_width, title_bar_height) = unpair(words[14]);
             return WindowData {
                 width,
                 height,
@@ -224,6 +234,8 @@ impl Snapshot {
                 cursor_grab: CursorGrab::from_u32(cursor_grab).unwrap_or_default(),
                 theme: Theme::from_u32(theme).unwrap_or_default(),
                 modifiers,
+                title_bar: TitleBarStyle::from_u32(words[12] as u32).unwrap_or_default(),
+                title_bar_area: [title_bar_x, title_bar_y, title_bar_width, title_bar_height],
                 serial: words[11] as u32,
             };
         }

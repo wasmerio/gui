@@ -27,7 +27,7 @@ default = []
 wasix = ["dep:wasmer-wasix"]
 # Native windows, through winit. Its event loop needs the process's main
 # thread: see `native::GuiMainThread`.
-winit = ["dep:winit"]
+winit = ["dep:winit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
 # The system clipboard, for native windows.
 clipboard = ["dep:arboard"]
 # Lets guests without a GPU draw in native windows
@@ -86,6 +86,11 @@ wasmer-types = { version = "7.5", optional = true }
 # libdispatch, for a timer that macOS fires on time (src/macos_deadline.rs).
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = { version = "0.3.1", default-features = false, features = ["alloc"] }
+# AppKit, for the window controls of title bars the guest draws
+# (src/native/title_bar.rs). The versions winit's own dependencies resolve to.
+objc2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSApplication", "NSButton", "NSControl", "NSEvent", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, optional = true, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }

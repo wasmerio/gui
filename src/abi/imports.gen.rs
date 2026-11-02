@@ -35,6 +35,7 @@ pub static IMPORTS: &[ImportSig] = &[
     ImportSig { name: "wguiWindowSetPosition", params: &[I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowSetFlags", params: &[I32, I64, I64, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowSetFullscreen", params: &[I32, I32, I64], results: &[I32], blocking: false },
+    ImportSig { name: "wguiWindowSetDragRegions", params: &[I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowFocus", params: &[I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowRequestAttention", params: &[I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowRequestRedraw", params: &[I32], results: &[I32], blocking: false },

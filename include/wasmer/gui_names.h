@@ -49,7 +49,7 @@ static inline const char* wguiSTypeName(WGUISType value) {
 }
 
 /**
- * The name of a WGUIFeatureName without its prefix ("RedrawReasons"), or NULL for a value this
+ * The name of a WGUIFeatureName without its prefix ("DragRegions"), or NULL for a value this
  * header does not know.
  */
 static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
@@ -86,6 +86,9 @@ static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
         case 0x0000001E: return "EventFd";
         case 0x0000001F: return "Gamepads";
         case 0x00000020: return "RedrawReasons";
+        case 0x00000021: return "TitleBarOverlay";
+        case 0x00000022: return "TitleBarCustom";
+        case 0x00000023: return "DragRegions";
         default: return NULL;
     }
 }
@@ -142,6 +145,19 @@ static inline const char* wguiFullscreenModeName(WGUIFullscreenMode value) {
         case 0x00000000: return "None";
         case 0x00000001: return "Borderless";
         case 0x00000002: return "Exclusive";
+        default: return NULL;
+    }
+}
+
+/**
+ * The name of a WGUITitleBarStyle without its prefix ("Custom"), or NULL for a value this
+ * header does not know.
+ */
+static inline const char* wguiTitleBarStyleName(WGUITitleBarStyle value) {
+    switch ((uint32_t)value) {
+        case 0x00000000: return "System";
+        case 0x00000001: return "Overlay";
+        case 0x00000002: return "Custom";
         default: return NULL;
     }
 }
@@ -413,6 +429,7 @@ static inline const char* wguiEventTypeName(WGUIEventType value) {
         case 0x00000409: return "WindowThemeChanged";
         case 0x0000040A: return "WindowCursorGrabChanged";
         case 0x0000040C: return "WindowLost";
+        case 0x0000040D: return "WindowTitleBarChanged";
         case 0x00000501: return "KeyDown";
         case 0x00000502: return "KeyUp";
         case 0x00000503: return "ModifiersChanged";

@@ -6,8 +6,10 @@
 pub const WGUI_IMPORT_MODULE: &str = "wasmer_gui_v0";
 
 /// The version of this header: major << 16 | minor. WGUI_INSTANCE_DESCRIPTOR_INIT passes it to
-/// the host, which behaves as that version describes.
-pub const WGUI_ABI_VERSION: u32 = 0x00000001;
+/// the host, which behaves as that version describes. While the major version is 0,
+/// wguiCreateInstance answers WGUIStatus_Unsupported to any other version (hosts of 0.1 only
+/// compared the major version).
+pub const WGUI_ABI_VERSION: u32 = 0x00000002;
 
 /// No event record is larger. A buffer handed to wguiInstancePollEvents must hold at least this
 /// many bytes.
@@ -214,6 +216,15 @@ pub const WGUIFeatureName_Gamepads: WGUIFeatureName = 0x0000001F;
 /// wguiWindowRequestRedraw, WGUIEventFlags_Exposure when the window has to be shown whole
 /// again. Without this feature, take every redraw as an exposure.
 pub const WGUIFeatureName_RedrawReasons: WGUIFeatureName = 0x00000020;
+/// WGUITitleBarStyle_Overlay: the content area takes the title bar too, and the system's window
+/// controls stay, over it.
+pub const WGUIFeatureName_TitleBarOverlay: WGUIFeatureName = 0x00000021;
+/// WGUITitleBarStyle_Custom: no title bar or window controls of the system's; the program draws
+/// its own.
+pub const WGUIFeatureName_TitleBarCustom: WGUIFeatureName = 0x00000022;
+/// wguiWindowSetDragRegions: parts of the content area that move the window, as a title bar
+/// does.
+pub const WGUIFeatureName_DragRegions: WGUIFeatureName = 0x00000023;
 
 /// What is behind the window system.
 pub type WGUIHostKind = u32;
@@ -253,6 +264,26 @@ pub const WGUIFullscreenMode_None: WGUIFullscreenMode = 0x00000000;
 pub const WGUIFullscreenMode_Borderless: WGUIFullscreenMode = 0x00000001;
 /// The display switches mode for the window. Needs WGUIFeatureName_FullscreenExclusive.
 pub const WGUIFullscreenMode_Exclusive: WGUIFullscreenMode = 0x00000002;
+
+/// Who draws a window's title bar. A host without the style a program asks for gives the window
+/// the system's title bar instead, and says so in WGUIWindowState: a program asks for the style
+/// it would like and lays itself out by the one it got.
+pub type WGUITitleBarStyle = u32;
+/// The window system's own title bar, outside the content area (where WGUIWindowFlags_Decorated
+/// has one).
+pub const WGUITitleBarStyle_System: WGUITitleBarStyle = 0x00000000;
+/// The content area takes the whole window, title bar included, and the program draws its title
+/// bar (a toolbar, tabs). The system's window controls (close, minimize, zoom) stay, over the
+/// content; WGUIWindowState says what of the title bar is left for the program. The program
+/// marks where its title bar moves the window with wguiWindowSetDragRegions. Needs
+/// WGUIFeatureName_TitleBarOverlay.
+pub const WGUITitleBarStyle_Overlay: WGUITitleBarStyle = 0x00000001;
+/// The content area takes the whole window and the system draws no title bar or window
+/// controls: the program draws its own controls, and minimizes, maximizes and closes the window
+/// itself. It marks where its title bar moves the window with wguiWindowSetDragRegions; the
+/// host still lets the user resize the window from its edges. Needs
+/// WGUIFeatureName_TitleBarCustom.
+pub const WGUITitleBarStyle_Custom: WGUITitleBarStyle = 0x00000002;
 
 pub type WGUIAttentionLevel = u32;
 /// Stop asking.
@@ -465,6 +496,10 @@ pub const WGUIEventType_WindowCursorGrabChanged: WGUIEventType = 0x0000040A;
 /// The window's host side is gone (the embedder removed its target). The handle only remains to
 /// be destroyed. Header only.
 pub const WGUIEventType_WindowLost: WGUIEventType = 0x0000040C;
+/// The window's title bar style or the part of it that is the program's changed
+/// (WGUIWindowState): it went in or out of fullscreen, or to a display of another scale. Lay
+/// the title bar out again, and mark its drag regions anew. Header only.
+pub const WGUIEventType_WindowTitleBarChanged: WGUIEventType = 0x0000040D;
 /// Record: WGUIKeyEvent.
 pub const WGUIEventType_KeyDown: WGUIEventType = 0x00000501;
 /// Record: WGUIKeyEvent.
@@ -1475,6 +1510,13 @@ pub struct WGUIWindowDescriptor {
     pub y: i32,
     /// The display to open on. 0 lets the host choose.
     pub display: WGUIDisplay,
+    /// The title bar the program would like. One the host does not have becomes
+    /// WGUITitleBarStyle_System; WGUIWindowState says which the window got.
+    pub titleBar: WGUITitleBarStyle,
+    /// How tall the program draws its title bar with WGUITitleBarStyle_Overlay or Custom, in
+    /// the units of the sizes above: the host centers the system's window controls in it. 0
+    /// lets the host choose its usual height.
+    pub titleBarHeight: u32,
 }
 
 impl WGUIWindowDescriptor {
@@ -1494,6 +1536,8 @@ impl WGUIWindowDescriptor {
         x: 0,
         y: 0,
         display: 0,
+        titleBar: WGUITitleBarStyle_System,
+        titleBarHeight: 0,
     };
 }
 
@@ -1533,6 +1577,17 @@ pub struct WGUIWindowState {
     /// The grab in effect now, which may be less than what was asked for.
     pub cursorGrab: WGUICursorGrab,
     pub theme: WGUITheme,
+    /// The title bar the window has: the one asked for, or WGUITitleBarStyle_System where the
+    /// host does not have that one.
+    pub titleBar: WGUITitleBarStyle,
+    /// The part of the content area that is the window's title bar and the program's to draw
+    /// in: without the system's window controls and the space the platform leaves around them.
+    /// Empty with WGUITitleBarStyle_System and while the title bar is not shown (in
+    /// fullscreen). Changes are announced by WGUIEventType_WindowTitleBarChanged.
+    pub titleBarX: u32,
+    pub titleBarY: u32,
+    pub titleBarWidth: u32,
+    pub titleBarHeight: u32,
     /// Goes up whenever anything in this struct changes.
     pub serial: u32,
 }
@@ -1559,6 +1614,11 @@ impl WGUIWindowState {
         fullscreen: WGUIFullscreenMode_None,
         cursorGrab: WGUICursorGrab_None,
         theme: WGUITheme_Unknown,
+        titleBar: WGUITitleBarStyle_System,
+        titleBarX: 0,
+        titleBarY: 0,
+        titleBarWidth: 0,
+        titleBarHeight: 0,
         serial: 0,
     };
 }
@@ -2219,6 +2279,17 @@ extern "C" {
     /// WGUIEventType_WindowFlagsChanged reports every change.
     pub fn wguiWindowSetFullscreen(window: WGUIWindow, options: *const WGUIFullscreenOptions, tag: u64) -> WGUIStatus;
 
+    /// Marks the parts of the content area that act as the window's title bar for the mouse:
+    /// dragging there with the primary button moves the window, and a double click does what
+    /// one on the system's title bar does (on macOS zoom, minimize or nothing, as the user's
+    /// settings say; elsewhere maximize or restore), but never zooms or maximizes a window that
+    /// is not resizable. They do nothing while the window is fullscreen. Presses there are the
+    /// host's and are not reported to the program; everything else (motion, other buttons) is.
+    /// `regions` replaces the regions before; none clears them. A program with
+    /// WGUITitleBarStyle_Overlay or Custom marks its title bar, less the controls it draws in
+    /// it, and again when its layout changes. Needs WGUIFeatureName_DragRegions.
+    pub fn wguiWindowSetDragRegions(window: WGUIWindow, regionCount: usize, regions: *const WGUIRect) -> WGUIStatus;
+
     /// Asks for keyboard focus and brings the window forward. Window systems may refuse.
     pub fn wguiWindowFocus(window: WGUIWindow) -> WGUIStatus;
 
@@ -2384,7 +2455,7 @@ const _: () = {
     assert!(offset_of!(WGUIDisplayInfo, scaleFactor) == 40);
     assert!(offset_of!(WGUIDisplayInfo, refreshRate) == 48);
     assert!(offset_of!(WGUIDisplayInfo, flags) == 52);
-    assert!(size_of::<WGUIWindowDescriptor>() == 72);
+    assert!(size_of::<WGUIWindowDescriptor>() == 80);
     assert!(offset_of!(WGUIWindowDescriptor, title) == 4);
     assert!(offset_of!(WGUIWindowDescriptor, target) == 12);
     assert!(offset_of!(WGUIWindowDescriptor, flags) == 24);
@@ -2398,7 +2469,9 @@ const _: () = {
     assert!(offset_of!(WGUIWindowDescriptor, x) == 60);
     assert!(offset_of!(WGUIWindowDescriptor, y) == 64);
     assert!(offset_of!(WGUIWindowDescriptor, display) == 68);
-    assert!(size_of::<WGUIWindowState>() == 96);
+    assert!(offset_of!(WGUIWindowDescriptor, titleBar) == 72);
+    assert!(offset_of!(WGUIWindowDescriptor, titleBarHeight) == 76);
+    assert!(size_of::<WGUIWindowState>() == 112);
     assert!(offset_of!(WGUIWindowState, width) == 4);
     assert!(offset_of!(WGUIWindowState, height) == 8);
     assert!(offset_of!(WGUIWindowState, scaleFactor) == 16);
@@ -2417,7 +2490,12 @@ const _: () = {
     assert!(offset_of!(WGUIWindowState, fullscreen) == 76);
     assert!(offset_of!(WGUIWindowState, cursorGrab) == 80);
     assert!(offset_of!(WGUIWindowState, theme) == 84);
-    assert!(offset_of!(WGUIWindowState, serial) == 88);
+    assert!(offset_of!(WGUIWindowState, titleBar) == 88);
+    assert!(offset_of!(WGUIWindowState, titleBarX) == 92);
+    assert!(offset_of!(WGUIWindowState, titleBarY) == 96);
+    assert!(offset_of!(WGUIWindowState, titleBarWidth) == 100);
+    assert!(offset_of!(WGUIWindowState, titleBarHeight) == 104);
+    assert!(offset_of!(WGUIWindowState, serial) == 108);
     assert!(size_of::<WGUIFullscreenOptions>() == 16);
     assert!(offset_of!(WGUIFullscreenOptions, mode) == 4);
     assert!(offset_of!(WGUIFullscreenOptions, display) == 8);

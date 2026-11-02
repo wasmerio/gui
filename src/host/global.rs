@@ -23,6 +23,14 @@ impl Host {
         if descriptor.abi_version != 0 && descriptor.abi_version >> 16 != ABI_VERSION >> 16 {
             return Err(Status::Unsupported);
         }
+        // Before 1.0 a minor version may lay structs out anew too: a guest
+        // built for another one would be read wrong, so it is refused.
+        if descriptor.abi_version != 0
+            && ABI_VERSION >> 16 == 0
+            && descriptor.abi_version != ABI_VERSION
+        {
+            return Err(Status::Unsupported);
+        }
         let features = self.features();
         if descriptor
             .required_features
