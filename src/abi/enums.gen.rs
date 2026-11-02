@@ -166,6 +166,9 @@ pub enum FeatureName {
     EventFd = 0x1E,
     Gamepads = 0x1F,
     RedrawReasons = 0x20,
+    TitleBarOverlay = 0x21,
+    TitleBarCustom = 0x22,
+    DragRegions = 0x23,
 }
 impl Default for FeatureName {
     fn default() -> Self {
@@ -208,6 +211,9 @@ impl AbiEnum for FeatureName {
             0x1E => Self::EventFd,
             0x1F => Self::Gamepads,
             0x20 => Self::RedrawReasons,
+            0x21 => Self::TitleBarOverlay,
+            0x22 => Self::TitleBarCustom,
+            0x23 => Self::DragRegions,
             _ => return None,
         })
     }
@@ -248,6 +254,9 @@ impl AbiEnum for FeatureName {
             Self::EventFd => "EventFd",
             Self::Gamepads => "Gamepads",
             Self::RedrawReasons => "RedrawReasons",
+            Self::TitleBarOverlay => "TitleBarOverlay",
+            Self::TitleBarCustom => "TitleBarCustom",
+            Self::DragRegions => "DragRegions",
         }
     }
 }
@@ -286,6 +295,9 @@ impl FeatureName {
         Self::EventFd,
         Self::Gamepads,
         Self::RedrawReasons,
+        Self::TitleBarOverlay,
+        Self::TitleBarCustom,
+        Self::DragRegions,
     ];
     pub fn from_abi(value: u32) -> AbiResult<Self> {
         Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
@@ -486,6 +498,52 @@ impl FullscreenMode {
         Self::None,
         Self::Borderless,
         Self::Exclusive,
+    ];
+    pub fn from_abi(value: u32) -> AbiResult<Self> {
+        Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
+    }
+}
+
+/// `WGUITitleBarStyle`
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum TitleBarStyle {
+    System = 0x0,
+    Overlay = 0x1,
+    Custom = 0x2,
+}
+impl Default for TitleBarStyle {
+    fn default() -> Self {
+        Self::System
+    }
+}
+impl AbiEnum for TitleBarStyle {
+    const NAME: &'static str = "WGUITitleBarStyle";
+    fn from_u32(value: u32) -> Option<Self> {
+        Some(match value {
+            0x0 => Self::System,
+            0x1 => Self::Overlay,
+            0x2 => Self::Custom,
+            _ => return None,
+        })
+    }
+    fn as_u32(self) -> u32 {
+        self as u32
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::System => "System",
+            Self::Overlay => "Overlay",
+            Self::Custom => "Custom",
+        }
+    }
+}
+impl TitleBarStyle {
+    /// Every value, in the order of the header.
+    pub const ALL: &'static [Self] = &[
+        Self::System,
+        Self::Overlay,
+        Self::Custom,
     ];
     pub fn from_abi(value: u32) -> AbiResult<Self> {
         Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
@@ -1393,6 +1451,7 @@ pub enum EventType {
     WindowThemeChanged = 0x409,
     WindowCursorGrabChanged = 0x40A,
     WindowLost = 0x40C,
+    WindowTitleBarChanged = 0x40D,
     KeyDown = 0x501,
     KeyUp = 0x502,
     ModifiersChanged = 0x503,
@@ -1440,6 +1499,7 @@ impl AbiEnum for EventType {
             0x409 => Self::WindowThemeChanged,
             0x40A => Self::WindowCursorGrabChanged,
             0x40C => Self::WindowLost,
+            0x40D => Self::WindowTitleBarChanged,
             0x501 => Self::KeyDown,
             0x502 => Self::KeyUp,
             0x503 => Self::ModifiersChanged,
@@ -1485,6 +1545,7 @@ impl AbiEnum for EventType {
             Self::WindowThemeChanged => "WindowThemeChanged",
             Self::WindowCursorGrabChanged => "WindowCursorGrabChanged",
             Self::WindowLost => "WindowLost",
+            Self::WindowTitleBarChanged => "WindowTitleBarChanged",
             Self::KeyDown => "KeyDown",
             Self::KeyUp => "KeyUp",
             Self::ModifiersChanged => "ModifiersChanged",
@@ -1528,6 +1589,7 @@ impl EventType {
         Self::WindowThemeChanged,
         Self::WindowCursorGrabChanged,
         Self::WindowLost,
+        Self::WindowTitleBarChanged,
         Self::KeyDown,
         Self::KeyUp,
         Self::ModifiersChanged,
@@ -2812,7 +2874,7 @@ pub mod input_devices {
 }
 
 /// Constants of the header.
-pub const ABI_VERSION: u32 = 0x00000001;
+pub const ABI_VERSION: u32 = 0x00000002;
 pub const MAX_EVENT_SIZE: u32 = 8192;
 pub const STRLEN: u32 = u32::MAX;
 pub const WAIT_FOREVER: u64 = u64::MAX;

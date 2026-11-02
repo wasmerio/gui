@@ -444,6 +444,11 @@ impl HostWindow for Window {
     fn apply(&self, change: WindowChange) {
         let window = &self.0;
         match change {
+            // Not offered (`FeatureName::DragRegions`): there is no window
+            // to move.
+            WindowChange::DragRegions(regions) => {
+                window.note(format!("drag-regions {}", regions.len()));
+            }
             WindowChange::Title(title) => {
                 window.note(format!("title {title:?}"));
                 lock(&window.model).title = title;

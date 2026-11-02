@@ -5866,6 +5866,9 @@ dependencies = [
  "dispatch2",
  "js-sys",
  "loom",
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-foundation 0.3.2",
  "raw-window-handle",
  "serde",
  "serde_json",
@@ -6095,6 +6098,7 @@ name = "wasmer-webgpu"
 version = "0.705.0"
 dependencies = [
  "anyhow",
+ "objc2 0.6.5",
  "pollster",
  "raw-window-handle",
  "wasmer",

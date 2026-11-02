@@ -14,9 +14,14 @@ use winit::window::{
     Window, WindowId, WindowLevel,
 };
 
+use super::title_bar::{self, DoubleClick};
 use super::{CloseBehavior, Command, Created, Shared, WindowKey, convert, lock};
 use crate::host::log;
 use crate::system::*;
+
+/// A press in a drag region: when, where in the window, and where the window
+/// was then.
+type DragPress = (Instant, (f64, f64), Option<(i32, i32)>);
 
 /// One window, as the loop keeps it.
 struct Entry {
@@ -61,6 +66,33 @@ struct Entry {
     /// What the window shows when its guest draws it without a GPU.
     #[cfg(feature = "pixels")]
     painted: Option<super::pixels::Painted>,
+    /// The title bar the window has, and how tall the guest draws it, in
+    /// logical units (0: the system's usual height).
+    title_bar: TitleBarStyle,
+    title_bar_height: f64,
+    /// Where presses move the window instead of reaching the guest.
+    drag_regions: Vec<Rect>,
+    /// A press went to the window system (a move or a resize): its release
+    /// is not the guest's either. Some systems keep that release (X11,
+    /// Wayland and macOS end a move with it), so the next press, or the
+    /// pointer coming back, ends the debt too.
+    owed_release: bool,
+    /// The last press in a drag region: when, where in the window, and where
+    /// the window was. What tells a double click where the platform does not
+    /// count clicks; a window that moved in between was dragged, not clicked.
+    last_drag_press: Option<DragPress>,
+    /// Whether the window's edges resize it: resizable, and neither maximized
+    /// nor fullscreen. Kept from the last report, as asking X11 on every
+    /// motion would be a round trip each time.
+    resizes_from_edges: bool,
+    /// Whether the window was fullscreen when its title bar was last
+    /// reported: macOS leaves fullscreen after the last resize it reports.
+    was_fullscreen: bool,
+    /// The edge of a `Custom` window the cursor is over, which shows a
+    /// resize cursor instead of the guest's.
+    resize_edge: Option<winit::window::ResizeDirection>,
+    /// The cursor the guest asked for, shown again off the edges.
+    guest_cursor: winit::window::Cursor,
 }
 
 impl Entry {
@@ -90,6 +122,9 @@ impl Entry {
             window_flags::MINIMIZED,
         );
         set(window.is_maximized(), window_flags::MAXIMIZED);
+        self.resizes_from_edges = flags & window_flags::RESIZABLE != 0
+            && flags & window_flags::MAXIMIZED == 0
+            && window.fullscreen().is_none();
         self.sink.flags(
             window_flags::VISIBLE
                 | window_flags::RESIZABLE
@@ -152,6 +187,116 @@ impl Entry {
             .set_cursor_visible(self.cursor_visible && wanted != CursorGrab::Locked);
         self.sink.cursor_grab_changed(wanted, reason);
         Ok(())
+    }
+
+    /// Tells the guest its title bar, after placing the system's controls
+    /// in it.
+    fn report_title_bar(&mut self) {
+        let scale = self.window.scale_factor();
+        let size = self.window.inner_size();
+        let physical = |value: f64| (value * scale).round().max(0.0) as u32;
+        let height = if self.title_bar_height > 0.0 {
+            self.title_bar_height
+        } else {
+            title_bar::CUSTOM_HEIGHT
+        };
+        self.was_fullscreen = self.window.fullscreen().is_some();
+        let area = match self.title_bar {
+            TitleBarStyle::System => [0; 4],
+            // The title bar hides with the rest of the window's frame.
+            _ if self.was_fullscreen => [0; 4],
+            #[cfg(target_os = "macos")]
+            TitleBarStyle::Overlay => {
+                match title_bar::layout_controls(&self.window, self.title_bar_height) {
+                    // What is right of the buttons, less as much space as is
+                    // left of them.
+                    Some(controls) => {
+                        let x = physical(controls.right + controls.left);
+                        [x, 0, size.width.saturating_sub(x), physical(controls.bar)]
+                    }
+                    None => [0; 4],
+                }
+            }
+            _ => [0, 0, size.width, physical(height)],
+        };
+        self.sink.title_bar(self.title_bar, area);
+    }
+
+    /// A press of the primary button that the window system takes, because
+    /// it is in a drag region or on an edge that resizes the window: moves,
+    /// zooms or resizes the window, and says so.
+    fn system_press(&mut self) -> bool {
+        // Whatever release a move before kept, this press starts anew.
+        self.owed_release = false;
+        if let Some(edge) = self.resize_edge {
+            if self.window.drag_resize_window(edge).is_ok() {
+                self.owed_release = true;
+                return true;
+            }
+            return false;
+        }
+        // A fullscreen window is not moved, nor zoomed.
+        if self.window.fullscreen().is_some()
+            || !title_bar::in_regions(&self.drag_regions, self.cursor)
+        {
+            self.last_drag_press = None;
+            return false;
+        }
+        let now = Instant::now();
+        let place = self
+            .window
+            .outer_position()
+            .ok()
+            .map(|place| (place.x, place.y));
+        let double = match title_bar::click_count(&self.window) {
+            // The second click only, as AppKit's own title bar: a third
+            // does not undo what the second did.
+            Some(count) => count == 2,
+            None => self.last_drag_press.is_some_and(|(when, (x, y), before)| {
+                now.duration_since(when) <= title_bar::DOUBLE_CLICK
+                    && before == place
+                    && (x - self.cursor.0).hypot(y - self.cursor.1)
+                        <= title_bar::DOUBLE_CLICK_DISTANCE * self.window.scale_factor()
+            }),
+        };
+        if double {
+            self.last_drag_press = None;
+            match title_bar::double_click_action() {
+                DoubleClick::Zoom => self.window.set_maximized(!self.window.is_maximized()),
+                DoubleClick::Minimize => self.window.set_minimized(true),
+                DoubleClick::Nothing => {}
+            }
+            self.report_state();
+        } else {
+            self.last_drag_press = Some((now, self.cursor, place));
+            if let Err(error) = self.window.drag_window() {
+                log(|| format!("cannot move the window: {error}"));
+            }
+        }
+        self.owed_release = true;
+        true
+    }
+
+    /// Shows a resize cursor over the edges of a `Custom` window, where the
+    /// window system draws no frame to resize it by.
+    fn hover_edges(&mut self) {
+        let edge = if self.title_bar == TitleBarStyle::Custom
+            && !cfg!(target_os = "macos")
+            && self.resizes_from_edges
+        {
+            let band = title_bar::RESIZE_BAND * self.window.scale_factor();
+            let size = self.size.load(std::sync::atomic::Ordering::Acquire);
+            title_bar::resize_edge(self.cursor, (size as u32, (size >> 32) as u32), band)
+        } else {
+            None
+        };
+        if edge != self.resize_edge {
+            self.resize_edge = edge;
+            match edge {
+                Some(edge) => self.window.set_cursor(title_bar::resize_cursor(edge)),
+                None => self.window.set_cursor(self.guest_cursor.clone()),
+            }
+        }
     }
 
     fn pointer(&mut self, phase: PointerPhase, button: u32) {
@@ -302,6 +447,27 @@ impl App {
             } else {
                 WindowLevel::Normal
             });
+        // A title bar the guest draws: the content takes the whole window.
+        let title_bar = attributes.title_bar;
+        #[cfg(target_os = "macos")]
+        if title_bar != TitleBarStyle::System {
+            use winit::platform::macos::WindowAttributesExtMacOS;
+            wanted = wanted
+                .with_titlebar_transparent(true)
+                .with_title_hidden(true)
+                .with_fullsize_content_view(true)
+                .with_titlebar_buttons_hidden(title_bar == TitleBarStyle::Custom);
+        }
+        #[cfg(not(target_os = "macos"))]
+        if title_bar == TitleBarStyle::Custom {
+            wanted = wanted.with_decorations(false);
+            // Undecorated, a window has no shadow on Windows unless asked.
+            #[cfg(target_os = "windows")]
+            {
+                use winit::platform::windows::WindowAttributesExtWindows;
+                wanted = wanted.with_undecorated_shadow(true);
+            }
+        }
         if let Some(wanted_size) = attributes.size {
             wanted = wanted.with_inner_size(size(wanted_size));
         }
@@ -358,10 +524,25 @@ impl App {
             unseen: false,
             #[cfg(feature = "pixels")]
             painted: None,
+            title_bar,
+            title_bar_height: f64::from(attributes.title_bar_height)
+                / if attributes.logical_units {
+                    1.0
+                } else {
+                    scale_factor
+                },
+            drag_regions: Vec::new(),
+            owed_release: false,
+            last_drag_press: None,
+            resizes_from_edges: false,
+            was_fullscreen: false,
+            resize_edge: None,
+            guest_cursor: winit::window::CursorIcon::Default.into(),
         };
         // Everything the guest can ask about first, then the size, which is
         // what tells it the window is there.
         entry.report_state();
+        entry.report_title_bar();
         entry.resized(size.width, size.height, scale_factor);
         self.windows.insert(id, entry);
         self.keys.insert(key, id);
@@ -457,6 +638,7 @@ impl App {
                 let levels = window_flags::ALWAYS_ON_TOP | window_flags::ALWAYS_ON_BOTTOM;
                 entry.sink.flags(mask & levels, values);
                 entry.report_state();
+                entry.report_title_bar();
             }
             WindowChange::Fullscreen { options, request } => {
                 let status = match &options {
@@ -470,6 +652,7 @@ impl App {
                         options.map(|_| WinitFullscreen::Borderless(fullscreen_monitor)),
                     );
                     entry.report_state();
+                    entry.report_title_bar();
                 }
                 request.complete(status);
             }
@@ -494,9 +677,17 @@ impl App {
                     window.request_redraw();
                 }
             }
-            WindowChange::CursorShape(shape) => window.set_cursor(convert::cursor_icon(shape)),
+            WindowChange::CursorShape(shape) => {
+                entry.guest_cursor = convert::cursor_icon(shape).into();
+                if entry.resize_edge.is_none() {
+                    window.set_cursor(entry.guest_cursor.clone());
+                }
+            }
             WindowChange::CustomCursor(None) => {
-                window.set_cursor(winit::window::CursorIcon::Default);
+                entry.guest_cursor = winit::window::CursorIcon::Default.into();
+                if entry.resize_edge.is_none() {
+                    window.set_cursor(entry.guest_cursor.clone());
+                }
             }
             WindowChange::CustomCursor(Some(image)) => {
                 let edge = |value: u32| u16::try_from(value).ok();
@@ -512,7 +703,12 @@ impl App {
                     _ => None,
                 };
                 match source {
-                    Some(source) => window.set_cursor(event_loop.create_custom_cursor(source)),
+                    Some(source) => {
+                        entry.guest_cursor = event_loop.create_custom_cursor(source).into();
+                        if entry.resize_edge.is_none() {
+                            window.set_cursor(entry.guest_cursor.clone());
+                        }
+                    }
                     None => log(|| "a cursor image winit does not take".to_owned()),
                 }
             }
@@ -563,6 +759,7 @@ impl App {
             // Frames come by themselves (`Command::Pixels`), where the build
             // can show them at all.
             WindowChange::Pixels(_) => {}
+            WindowChange::DragRegions(regions) => entry.drag_regions = regions,
         }
     }
 
@@ -702,6 +899,10 @@ impl ApplicationHandler<()> for App {
                 let scale_factor = entry.window.scale_factor();
                 entry.report_state();
                 entry.resized(size.width, size.height, scale_factor);
+                // AppKit has put the window controls back in their usual
+                // place, if it laid the title bar out again. After the size,
+                // which the guest lays the title bar out by.
+                entry.report_title_bar();
                 // The frame on show is stretched to the new size until the
                 // guest has drawn one for it.
                 #[cfg(feature = "pixels")]
@@ -715,6 +916,7 @@ impl ApplicationHandler<()> for App {
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
                 let size = entry.window.inner_size();
                 entry.resized(size.width, size.height, scale_factor);
+                entry.report_title_bar();
             }
             WindowEvent::Moved(_) => {
                 entry.report_place();
@@ -728,6 +930,7 @@ impl ApplicationHandler<()> for App {
             }
             WindowEvent::Focused(focused) => {
                 entry.focused = focused;
+                entry.owed_release = false;
                 if focused {
                     entry.sink.focused(true);
                     if entry.grab != CursorGrab::None {
@@ -768,6 +971,8 @@ impl ApplicationHandler<()> for App {
             }
             WindowEvent::ThemeChanged(theme) => {
                 entry.sink.theme_changed(convert::theme(Some(theme)));
+                // An appearance change may lay the title bar out again.
+                entry.report_title_bar();
             }
             WindowEvent::RedrawRequested => {
                 #[cfg(feature = "pixels")]
@@ -800,17 +1005,36 @@ impl ApplicationHandler<()> for App {
             },
             WindowEvent::CursorMoved { position, .. } => {
                 entry.cursor = (position.x, position.y);
+                entry.hover_edges();
                 entry.pointer(PointerPhase::Motion, 0);
             }
-            WindowEvent::CursorEntered { .. } => entry.pointer(PointerPhase::Enter, 0),
-            WindowEvent::CursorLeft { .. } => entry.pointer(PointerPhase::Leave, 0),
-            WindowEvent::MouseInput { state, button, .. } => entry.pointer(
+            WindowEvent::CursorEntered { .. } => {
+                entry.owed_release = false;
+                entry.pointer(PointerPhase::Enter, 0);
+            }
+            WindowEvent::CursorLeft { .. } => {
+                if entry.resize_edge.take().is_some() {
+                    entry.window.set_cursor(entry.guest_cursor.clone());
+                }
+                entry.pointer(PointerPhase::Leave, 0);
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                let primary = button == winit::event::MouseButton::Left;
                 match state {
-                    ElementState::Pressed => PointerPhase::Down,
-                    ElementState::Released => PointerPhase::Up,
-                },
-                convert::button(button),
-            ),
+                    // Moving or resizing the window: the guest is not told.
+                    ElementState::Pressed if primary && entry.system_press() => {}
+                    ElementState::Released if primary && entry.owed_release => {
+                        entry.owed_release = false;
+                    }
+                    _ => entry.pointer(
+                        match state {
+                            ElementState::Pressed => PointerPhase::Down,
+                            ElementState::Released => PointerPhase::Up,
+                        },
+                        convert::button(button),
+                    ),
+                }
+            }
             WindowEvent::MouseWheel { delta, phase, .. } => {
                 entry.sink.wheel(convert::wheel(delta, phase, entry.cursor));
             }
@@ -870,6 +1094,17 @@ impl ApplicationHandler<()> for App {
         };
         #[cfg(target_os = "macos")]
         let mut redraw_next: Option<Instant> = None;
+        // A window that left fullscreen since its title bar was reported:
+        // macOS says so only after the last resize of the way out, and
+        // lays the title bar out again then.
+        for entry in self.windows.values_mut() {
+            if entry.title_bar != TitleBarStyle::System
+                && entry.window.fullscreen().is_some() != entry.was_fullscreen
+            {
+                entry.report_state();
+                entry.report_title_bar();
+            }
+        }
         // Redraws that were asked for before the display was ready.
         for entry in self.windows.values_mut() {
             match entry.redraw_due {

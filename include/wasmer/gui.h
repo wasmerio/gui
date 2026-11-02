@@ -11,7 +11,9 @@
  *
  * Every function returns a WGUIStatus (or nothing) and hands values back through out-pointers.
  * A host that does not have a function answers WGUIStatus_Unimplemented and does nothing, so a
- * program built against a newer header still starts on an older host.
+ * program built against a newer header still starts on an older host of the same version.
+ * Before 1.0 a minor version may lay structs out anew: a host refuses an instance for a program
+ * built against another one.
  *
  * All functions may be called from any thread. Sizes and positions are physical pixels unless
  * stated otherwise.
@@ -50,9 +52,11 @@
 
 /**
  * The version of this header: major << 16 | minor. WGUI_INSTANCE_DESCRIPTOR_INIT passes it to
- * the host, which behaves as that version describes.
+ * the host, which behaves as that version describes. While the major version is 0,
+ * wguiCreateInstance answers WGUIStatus_Unsupported to any other version (hosts of 0.1 only
+ * compared the major version).
  */
-#define WGUI_ABI_VERSION (0x00000001U)
+#define WGUI_ABI_VERSION (0x00000002U)
 
 /**
  * No event record is larger. A buffer handed to wguiInstancePollEvents must hold at least this
@@ -271,6 +275,21 @@ typedef enum WGUIFeatureName {
      * again. Without this feature, take every redraw as an exposure.
      */
     WGUIFeatureName_RedrawReasons = 0x00000020,
+    /**
+     * WGUITitleBarStyle_Overlay: the content area takes the title bar too, and the system's
+     * window controls stay, over it.
+     */
+    WGUIFeatureName_TitleBarOverlay = 0x00000021,
+    /**
+     * WGUITitleBarStyle_Custom: no title bar or window controls of the system's; the program
+     * draws its own.
+     */
+    WGUIFeatureName_TitleBarCustom = 0x00000022,
+    /**
+     * wguiWindowSetDragRegions: parts of the content area that move the window, as a title bar
+     * does.
+     */
+    WGUIFeatureName_DragRegions = 0x00000023,
     WGUIFeatureName_Force32 = 0x7FFFFFFF
 } WGUIFeatureName;
 
@@ -320,6 +339,36 @@ typedef enum WGUIFullscreenMode {
     WGUIFullscreenMode_Exclusive = 0x00000002,
     WGUIFullscreenMode_Force32 = 0x7FFFFFFF
 } WGUIFullscreenMode;
+
+/**
+ * Who draws a window's title bar. A host without the style a program asks for gives the window
+ * the system's title bar instead, and says so in WGUIWindowState: a program asks for the style
+ * it would like and lays itself out by the one it got.
+ */
+typedef enum WGUITitleBarStyle {
+    /**
+     * The window system's own title bar, outside the content area (where
+     * WGUIWindowFlags_Decorated has one).
+     */
+    WGUITitleBarStyle_System = 0x00000000,
+    /**
+     * The content area takes the whole window, title bar included, and the program draws its
+     * title bar (a toolbar, tabs). The system's window controls (close, minimize, zoom) stay,
+     * over the content; WGUIWindowState says what of the title bar is left for the program. The
+     * program marks where its title bar moves the window with wguiWindowSetDragRegions. Needs
+     * WGUIFeatureName_TitleBarOverlay.
+     */
+    WGUITitleBarStyle_Overlay = 0x00000001,
+    /**
+     * The content area takes the whole window and the system draws no title bar or window
+     * controls: the program draws its own controls, and minimizes, maximizes and closes the
+     * window itself. It marks where its title bar moves the window with
+     * wguiWindowSetDragRegions; the host still lets the user resize the window from its edges.
+     * Needs WGUIFeatureName_TitleBarCustom.
+     */
+    WGUITitleBarStyle_Custom = 0x00000002,
+    WGUITitleBarStyle_Force32 = 0x7FFFFFFF
+} WGUITitleBarStyle;
 
 typedef enum WGUIAttentionLevel {
     /** Stop asking. */
@@ -582,6 +631,12 @@ typedef enum WGUIEventType {
      * to be destroyed. Header only.
      */
     WGUIEventType_WindowLost = 0x0000040C,
+    /**
+     * The window's title bar style or the part of it that is the program's changed
+     * (WGUIWindowState): it went in or out of fullscreen, or to a display of another scale. Lay
+     * the title bar out again, and mark its drag regions anew. Header only.
+     */
+    WGUIEventType_WindowTitleBarChanged = 0x0000040D,
     /** Record: WGUIKeyEvent. */
     WGUIEventType_KeyDown = 0x00000501,
     /** Record: WGUIKeyEvent. */
@@ -1587,6 +1642,17 @@ typedef struct WGUIWindowDescriptor {
     int32_t y;
     /** The display to open on. 0 lets the host choose. */
     WGUIDisplay display;
+    /**
+     * The title bar the program would like. One the host does not have becomes
+     * WGUITitleBarStyle_System; WGUIWindowState says which the window got.
+     */
+    WGUITitleBarStyle titleBar;
+    /**
+     * How tall the program draws its title bar with WGUITitleBarStyle_Overlay or Custom, in the
+     * units of the sizes above: the host centers the system's window controls in it. 0 lets the
+     * host choose its usual height.
+     */
+    uint32_t titleBarHeight;
 } WGUIWindowDescriptor;
 
 #define WGUI_WINDOW_DESCRIPTOR_INIT WGUI_MAKE_INIT_STRUCT(WGUIWindowDescriptor, { \
@@ -1603,7 +1669,9 @@ typedef struct WGUIWindowDescriptor {
     /*.maxHeight=*/0 WGUI_COMMA \
     /*.x=*/0 WGUI_COMMA \
     /*.y=*/0 WGUI_COMMA \
-    /*.display=*/0 \
+    /*.display=*/0 WGUI_COMMA \
+    /*.titleBar=*/WGUITitleBarStyle_System WGUI_COMMA \
+    /*.titleBarHeight=*/0 \
 })
 
 typedef struct WGUIWindowState {
@@ -1636,6 +1704,21 @@ typedef struct WGUIWindowState {
     /** The grab in effect now, which may be less than what was asked for. */
     WGUICursorGrab cursorGrab;
     WGUITheme theme;
+    /**
+     * The title bar the window has: the one asked for, or WGUITitleBarStyle_System where the
+     * host does not have that one.
+     */
+    WGUITitleBarStyle titleBar;
+    /**
+     * The part of the content area that is the window's title bar and the program's to draw in:
+     * without the system's window controls and the space the platform leaves around them. Empty
+     * with WGUITitleBarStyle_System and while the title bar is not shown (in fullscreen).
+     * Changes are announced by WGUIEventType_WindowTitleBarChanged.
+     */
+    uint32_t titleBarX;
+    uint32_t titleBarY;
+    uint32_t titleBarWidth;
+    uint32_t titleBarHeight;
     /** Goes up whenever anything in this struct changes. */
     uint32_t serial;
 } WGUIWindowState;
@@ -1660,6 +1743,11 @@ typedef struct WGUIWindowState {
     /*.fullscreen=*/WGUIFullscreenMode_None WGUI_COMMA \
     /*.cursorGrab=*/WGUICursorGrab_None WGUI_COMMA \
     /*.theme=*/WGUITheme_Unknown WGUI_COMMA \
+    /*.titleBar=*/WGUITitleBarStyle_System WGUI_COMMA \
+    /*.titleBarX=*/0 WGUI_COMMA \
+    /*.titleBarY=*/0 WGUI_COMMA \
+    /*.titleBarWidth=*/0 WGUI_COMMA \
+    /*.titleBarHeight=*/0 WGUI_COMMA \
     /*.serial=*/0 \
 })
 
@@ -2308,6 +2396,19 @@ WGUIStatus wguiWindowSetFlags(WGUIWindow window, WGUIWindowFlags mask, WGUIWindo
  */
 WGUI_IMPORT(wguiWindowSetFullscreen)
 WGUIStatus wguiWindowSetFullscreen(WGUIWindow window, const WGUIFullscreenOptions* options, uint64_t tag);
+
+/**
+ * Marks the parts of the content area that act as the window's title bar for the mouse:
+ * dragging there with the primary button moves the window, and a double click does what one on
+ * the system's title bar does (on macOS zoom, minimize or nothing, as the user's settings say;
+ * elsewhere maximize or restore). They do nothing while the window is fullscreen. Presses there
+ * are the host's and are not reported to the program; everything else (motion, other buttons)
+ * is. `regions` replaces the regions before; none clears them. A program with
+ * WGUITitleBarStyle_Overlay or Custom marks its title bar, less the controls it draws in it,
+ * and again when its layout changes. Needs WGUIFeatureName_DragRegions.
+ */
+WGUI_IMPORT(wguiWindowSetDragRegions)
+WGUIStatus wguiWindowSetDragRegions(WGUIWindow window, size_t regionCount, const WGUIRect* regions);
 
 /** Asks for keyboard focus and brings the window forward. Window systems may refuse. */
 WGUI_IMPORT(wguiWindowFocus)

@@ -288,7 +288,7 @@ fn no_argument_makes_the_host_misbehave() {
 #[test]
 fn every_import_is_swept() {
     // The sweep goes by the import table, so the table has to be the API.
-    assert_eq!(IMPORTS.len(), 42);
+    assert_eq!(IMPORTS.len(), 43);
     let blocking: Vec<_> = IMPORTS
         .iter()
         .filter(|sig| sig.blocking)

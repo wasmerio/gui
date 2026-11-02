@@ -557,6 +557,28 @@ impl WindowSink {
             .update(|data| data.safe_area = safe_area);
     }
 
+    /// The window's title bar style, and the part of its title bar that is
+    /// the guest's to draw in (x, y, width, height in physical pixels; empty
+    /// for [`TitleBarStyle::System`] and while the title bar is not shown).
+    /// A window system that offers another style reports it before
+    /// [`WindowSink::resized`] first tells the guest the window's size.
+    pub fn title_bar(&mut self, style: TitleBarStyle, area: [u32; 4]) {
+        let area = if style == TitleBarStyle::System {
+            [0; 4]
+        } else {
+            area
+        };
+        let (before, after) = self.window.snapshot.update(|data| {
+            data.title_bar = style;
+            data.title_bar_area = area;
+        });
+        // Not announced before the first size (`emit`): what the guest reads
+        // then is already this.
+        if (before.title_bar, before.title_bar_area) != (after.title_bar, after.title_bar_area) {
+            self.emit(0, 0, Event::WindowTitleBarChanged);
+        }
+    }
+
     /// The [`window_flags`] in `mask` are now as in `values`. Focus has its
     /// own report, [`WindowSink::focused`].
     pub fn flags(&mut self, mask: u64, values: u64) {

@@ -1,0 +1,5 @@
+overlay: no, custom: no, drag regions: no
+asked for Overlay
+title bar System, area 0x0 at 0,0, band 48 tall
+drag regions: 7, Unsupported
+done

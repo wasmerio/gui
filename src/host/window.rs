@@ -62,6 +62,15 @@ impl Host {
         {
             return Err(Status::LimitExceeded);
         }
+        // A style the host does not have is not an error: the window gets
+        // the system's title bar, and its state says so.
+        let title_bar = match descriptor.title_bar {
+            TitleBarStyle::Overlay if self.has(FeatureName::TitleBarOverlay) => {
+                TitleBarStyle::Overlay
+            }
+            TitleBarStyle::Custom if self.has(FeatureName::TitleBarCustom) => TitleBarStyle::Custom,
+            _ => TitleBarStyle::System,
+        };
         let positioned = descriptor.options & window_options::POSITIONED != 0;
         if positioned && !self.has(FeatureName::WindowPosition) {
             return Err(Status::Unsupported);
@@ -79,6 +88,8 @@ impl Host {
             position: positioned.then_some((descriptor.x, descriptor.y)),
             display: self.display_id(descriptor.display)?,
             top_level: self.has(FeatureName::TopLevelWindows),
+            title_bar,
+            title_bar_height: descriptor.title_bar_height,
         };
 
         // The window has its handle before the window system hears of it:
@@ -195,6 +206,11 @@ impl WindowApi for Host {
                 fullscreen: data.fullscreen,
                 cursor_grab: data.cursor_grab,
                 theme: data.theme,
+                title_bar: data.title_bar,
+                title_bar_x: data.title_bar_area[0],
+                title_bar_y: data.title_bar_area[1],
+                title_bar_width: data.title_bar_area[2],
+                title_bar_height: data.title_bar_area[3],
                 serial: data.serial,
             },
         )?;
@@ -347,6 +363,19 @@ impl WindowApi for Host {
         let request = PendingRequest::new(&state.instance, window, RequestKind::Fullscreen, tag);
         state.apply(WindowChange::Fullscreen { options, request });
         Ok(Status::Success)
+    }
+
+    fn window_set_drag_regions(
+        &self,
+        _cx: &mut Cx<'_>,
+        window: Handle,
+        regions: &[Rect],
+    ) -> AbiResult<Status> {
+        Ok(self.change_if(
+            FeatureName::DragRegions,
+            window,
+            WindowChange::DragRegions(regions.to_vec()),
+        ))
     }
 
     fn window_focus(&self, _cx: &mut Cx<'_>, window: Handle) -> AbiResult<Status> {

@@ -16,8 +16,8 @@
 pub use crate::abi::enums::{
     AttentionLevel, ClipboardSelection, CursorGrab, CursorGrabReason, CursorShape, FeatureName,
     FullscreenMode, HostKind, KeyLocation, PhysicalKey, PixelAlpha, PixelFormat, PointerButton,
-    PointerKind, PointerTool, ScreenKeyboardPolicy, Status, TextInputPurpose, Theme, WheelPhase,
-    WheelUnit,
+    PointerKind, PointerTool, ScreenKeyboardPolicy, Status, TextInputPurpose, Theme, TitleBarStyle,
+    WheelPhase, WheelUnit,
 };
 pub use crate::abi::enums::{
     clipboard_flags, default_actions, input_devices, key, modifiers, text_input_hints, wheel_flags,
@@ -86,6 +86,14 @@ pub struct WindowAttributes {
     /// The guest may be given a window of its own when there is no target
     /// for it to adopt. Without this, only targets can become windows.
     pub top_level: bool,
+    /// The title bar the guest would like. The host has already made it
+    /// [`TitleBarStyle::System`] where the window system's features lack the
+    /// one asked for. Report the one the window got with
+    /// [`WindowSink::title_bar`].
+    pub title_bar: TitleBarStyle,
+    /// How tall the guest draws its title bar, in the units of the sizes
+    /// (`logical_units`). 0: the window system's usual height.
+    pub title_bar_height: u32,
 }
 
 /// A custom cursor: RGBA, 8 bits each, straight alpha, rows from the top.
@@ -254,6 +262,11 @@ pub enum WindowChange {
     /// Show this frame. Frames that come faster than they can be shown
     /// replace each other: only the last one matters.
     Pixels(PixelFrame),
+    /// The parts of the content area that move the window when dragged, in
+    /// physical pixels; they replace the ones before. Presses there are the
+    /// window system's, not the guest's. Only for a system that has
+    /// [`FeatureName::DragRegions`].
+    DragRegions(Vec<Rect>),
 }
 
 /// A window of the window system. Dropping it destroys the window.

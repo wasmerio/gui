@@ -86,6 +86,8 @@ pub trait WindowApi {
     fn window_set_flags(&self, cx: &mut Cx<'_>, window: Handle, mask: u64, values: u64, unsupported: OutPtr<u64>) -> AbiResult<Status>;
     /// `wguiWindowSetFullscreen`
     fn window_set_fullscreen(&self, cx: &mut Cx<'_>, window: Handle, options: Option<&FullscreenOptions>, tag: u64) -> AbiResult<Status>;
+    /// `wguiWindowSetDragRegions`
+    fn window_set_drag_regions(&self, cx: &mut Cx<'_>, window: Handle, regions: &[Rect]) -> AbiResult<Status>;
     /// `wguiWindowFocus`
     fn window_focus(&self, cx: &mut Cx<'_>, window: Handle) -> AbiResult<Status>;
     /// `wguiWindowRequestAttention`
@@ -379,6 +381,13 @@ fn import_window_set_fullscreen(mut env: FunctionEnvMut<'_, GuiEnv>, window: u32
     })
 }
 
+fn import_window_set_drag_regions(mut env: FunctionEnvMut<'_, GuiEnv>, window: u32, region_count: u32, regions: u32) -> Result<u32, RuntimeError> {
+    enter(&mut env, "wguiWindowSetDragRegions", |host, cx| {
+        let regions = cx.mem.read_array::<Rect>(regions, region_count)?;
+        host.window_set_drag_regions(cx, window, &regions)
+    })
+}
+
 fn import_window_focus(mut env: FunctionEnvMut<'_, GuiEnv>, window: u32) -> Result<u32, RuntimeError> {
     enter(&mut env, "wguiWindowFocus", |host, cx| {
         host.window_focus(cx, window)
@@ -495,6 +504,7 @@ pub(crate) fn register(store: &mut impl AsStoreMut, env: &FunctionEnv<GuiEnv>, e
     exports.insert("wguiWindowSetPosition", Function::new_typed_with_env(store, env, import_window_set_position));
     exports.insert("wguiWindowSetFlags", Function::new_typed_with_env(store, env, import_window_set_flags));
     exports.insert("wguiWindowSetFullscreen", Function::new_typed_with_env(store, env, import_window_set_fullscreen));
+    exports.insert("wguiWindowSetDragRegions", Function::new_typed_with_env(store, env, import_window_set_drag_regions));
     exports.insert("wguiWindowFocus", Function::new_typed_with_env(store, env, import_window_focus));
     exports.insert("wguiWindowRequestAttention", Function::new_typed_with_env(store, env, import_window_request_attention));
     exports.insert("wguiWindowRequestRedraw", Function::new_typed_with_env(store, env, import_window_request_redraw));
@@ -590,19 +600,20 @@ fn call(index: usize, env: FunctionEnvMut<'_, GuiEnv>, args: &[wasmer::Value]) -
         26 => value(import_window_set_position(env, raw[0] as u32, raw[1] as u32 as i32, raw[2] as u32 as i32)),
         27 => value(import_window_set_flags(env, raw[0] as u32, raw[1], raw[2], raw[3] as u32)),
         28 => value(import_window_set_fullscreen(env, raw[0] as u32, raw[1] as u32, raw[2])),
-        29 => value(import_window_focus(env, raw[0] as u32)),
-        30 => value(import_window_request_attention(env, raw[0] as u32, raw[1] as u32)),
-        31 => value(import_window_request_redraw(env, raw[0] as u32)),
-        32 => value(import_window_set_cursor_shape(env, raw[0] as u32, raw[1] as u32)),
-        33 => value(import_window_set_custom_cursor(env, raw[0] as u32, raw[1] as u32)),
-        34 => value(import_window_set_cursor_visible(env, raw[0] as u32, raw[1] as u32)),
-        35 => value(import_window_set_cursor_grab(env, raw[0] as u32, raw[1] as u32, raw[2])),
-        36 => value(import_window_set_cursor_position(env, raw[0] as u32, f64::from_bits(raw[1]), f64::from_bits(raw[2]))),
-        37 => value(import_window_set_text_input(env, raw[0] as u32, raw[1] as u32)),
-        38 => value(import_window_reset_text_input(env, raw[0] as u32)),
-        39 => value(import_window_set_default_actions(env, raw[0] as u32, raw[1] as u32)),
-        40 => value(import_window_present_pixels(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        41 => nothing(import_cursor_destroy(env, raw[0] as u32)),
+        29 => value(import_window_set_drag_regions(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        30 => value(import_window_focus(env, raw[0] as u32)),
+        31 => value(import_window_request_attention(env, raw[0] as u32, raw[1] as u32)),
+        32 => value(import_window_request_redraw(env, raw[0] as u32)),
+        33 => value(import_window_set_cursor_shape(env, raw[0] as u32, raw[1] as u32)),
+        34 => value(import_window_set_custom_cursor(env, raw[0] as u32, raw[1] as u32)),
+        35 => value(import_window_set_cursor_visible(env, raw[0] as u32, raw[1] as u32)),
+        36 => value(import_window_set_cursor_grab(env, raw[0] as u32, raw[1] as u32, raw[2])),
+        37 => value(import_window_set_cursor_position(env, raw[0] as u32, f64::from_bits(raw[1]), f64::from_bits(raw[2]))),
+        38 => value(import_window_set_text_input(env, raw[0] as u32, raw[1] as u32)),
+        39 => value(import_window_reset_text_input(env, raw[0] as u32)),
+        40 => value(import_window_set_default_actions(env, raw[0] as u32, raw[1] as u32)),
+        41 => value(import_window_present_pixels(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        42 => nothing(import_cursor_destroy(env, raw[0] as u32)),
         _ => Err(RuntimeError::new("no such import")),
     }
 }

@@ -64,7 +64,7 @@ OFFSET(WGUIDisplayInfo, scaleFactor, 40);
 OFFSET(WGUIDisplayInfo, refreshRate, 48);
 OFFSET(WGUIDisplayInfo, flags, 52);
 
-SIZE(WGUIWindowDescriptor, 72, 8);
+SIZE(WGUIWindowDescriptor, 80, 8);
 OFFSET(WGUIWindowDescriptor, nextInChain, 0);
 OFFSET(WGUIWindowDescriptor, title, 4);
 OFFSET(WGUIWindowDescriptor, target, 12);
@@ -79,8 +79,10 @@ OFFSET(WGUIWindowDescriptor, maxHeight, 56);
 OFFSET(WGUIWindowDescriptor, x, 60);
 OFFSET(WGUIWindowDescriptor, y, 64);
 OFFSET(WGUIWindowDescriptor, display, 68);
+OFFSET(WGUIWindowDescriptor, titleBar, 72);
+OFFSET(WGUIWindowDescriptor, titleBarHeight, 76);
 
-SIZE(WGUIWindowState, 96, 8);
+SIZE(WGUIWindowState, 112, 8);
 OFFSET(WGUIWindowState, nextInChain, 0);
 OFFSET(WGUIWindowState, width, 4);
 OFFSET(WGUIWindowState, height, 8);
@@ -100,7 +102,12 @@ OFFSET(WGUIWindowState, display, 72);
 OFFSET(WGUIWindowState, fullscreen, 76);
 OFFSET(WGUIWindowState, cursorGrab, 80);
 OFFSET(WGUIWindowState, theme, 84);
-OFFSET(WGUIWindowState, serial, 88);
+OFFSET(WGUIWindowState, titleBar, 88);
+OFFSET(WGUIWindowState, titleBarX, 92);
+OFFSET(WGUIWindowState, titleBarY, 96);
+OFFSET(WGUIWindowState, titleBarWidth, 100);
+OFFSET(WGUIWindowState, titleBarHeight, 104);
+OFFSET(WGUIWindowState, serial, 108);
 
 SIZE(WGUIFullscreenOptions, 16, 4);
 OFFSET(WGUIFullscreenOptions, nextInChain, 0);
@@ -356,6 +363,9 @@ VALUE(WGUIFeatureName_PixelPresent, 0x1DULL);
 VALUE(WGUIFeatureName_EventFd, 0x1EULL);
 VALUE(WGUIFeatureName_Gamepads, 0x1FULL);
 VALUE(WGUIFeatureName_RedrawReasons, 0x20ULL);
+VALUE(WGUIFeatureName_TitleBarOverlay, 0x21ULL);
+VALUE(WGUIFeatureName_TitleBarCustom, 0x22ULL);
+VALUE(WGUIFeatureName_DragRegions, 0x23ULL);
 
 SIZE(WGUIHostKind, 4, 4);
 VALUE(WGUIHostKind_Unknown, 0x0ULL);
@@ -380,6 +390,11 @@ SIZE(WGUIFullscreenMode, 4, 4);
 VALUE(WGUIFullscreenMode_None, 0x0ULL);
 VALUE(WGUIFullscreenMode_Borderless, 0x1ULL);
 VALUE(WGUIFullscreenMode_Exclusive, 0x2ULL);
+
+SIZE(WGUITitleBarStyle, 4, 4);
+VALUE(WGUITitleBarStyle_System, 0x0ULL);
+VALUE(WGUITitleBarStyle_Overlay, 0x1ULL);
+VALUE(WGUITitleBarStyle_Custom, 0x2ULL);
 
 SIZE(WGUIAttentionLevel, 4, 4);
 VALUE(WGUIAttentionLevel_None, 0x0ULL);
@@ -523,6 +538,7 @@ VALUE(WGUIEventType_WindowDisplayChanged, 0x408ULL);
 VALUE(WGUIEventType_WindowThemeChanged, 0x409ULL);
 VALUE(WGUIEventType_WindowCursorGrabChanged, 0x40AULL);
 VALUE(WGUIEventType_WindowLost, 0x40CULL);
+VALUE(WGUIEventType_WindowTitleBarChanged, 0x40DULL);
 VALUE(WGUIEventType_KeyDown, 0x501ULL);
 VALUE(WGUIEventType_KeyUp, 0x502ULL);
 VALUE(WGUIEventType_ModifiersChanged, 0x503ULL);
@@ -1109,7 +1125,7 @@ VALUE(WGUIKey_F33, 0x1004021ULL);
 VALUE(WGUIKey_F34, 0x1004022ULL);
 VALUE(WGUIKey_F35, 0x1004023ULL);
 
-VALUE(WGUI_ABI_VERSION, 0x1ULL);
+VALUE(WGUI_ABI_VERSION, 0x2ULL);
 VALUE(WGUI_MAX_EVENT_SIZE, 8192ULL);
 VALUE(sizeof(WGUIEventHeader), 32ULL);
 
