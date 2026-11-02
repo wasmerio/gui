@@ -15,11 +15,18 @@
 
 use winit::window::ResizeDirection;
 
-use crate::system::Rect;
+use crate::system::{Rect, TitleBarStyle};
 
 /// How wide the band along a `Custom` window's edges is that resizes it, in
 /// logical units.
 pub(super) const RESIZE_BAND: f64 = 5.0;
+
+/// Whether the host resizes a `style` window from a band along its edges:
+/// a `Custom` one, which has no frame to be resized by, except on macOS,
+/// which keeps one.
+pub(super) fn host_resizes(style: TitleBarStyle) -> bool {
+    style == TitleBarStyle::Custom && !cfg!(target_os = "macos")
+}
 
 /// The height of a `Custom` title bar when the guest names none, in logical
 /// units: what Windows 11 and GNOME draw theirs at.
@@ -257,6 +264,27 @@ mod tests {
         assert!(!in_regions(&regions, (30.0, 2.0)));
         assert!(!in_regions(&regions, (12.0, 5.0)));
         assert!(!in_regions(&[], (12.0, 2.0)));
+    }
+
+    #[test]
+    fn only_a_custom_window_off_macos_is_resized_from_its_edges() {
+        assert_eq!(
+            host_resizes(TitleBarStyle::Custom),
+            !cfg!(target_os = "macos")
+        );
+        assert!(!host_resizes(TitleBarStyle::Overlay));
+        assert!(!host_resizes(TitleBarStyle::System));
+    }
+
+    #[test]
+    fn an_edge_is_where_the_window_ends_now() {
+        // The pointer on the right edge of a window 600 wide stays there
+        // while the window grows to 1200: it is then in the content.
+        assert_eq!(
+            resize_edge((599.0, 100.0), (600, 400), 5.0),
+            Some(ResizeDirection::East)
+        );
+        assert_eq!(resize_edge((599.0, 100.0), (1200, 400), 5.0), None);
     }
 
     #[test]

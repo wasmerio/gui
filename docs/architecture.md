@@ -165,7 +165,11 @@ The program marks where its title bar moves the window
 rectangles on the loop's thread and starts the move itself, while the press
 is the event being handled: winit's `drag_window` takes the current event, so
 a request coming back from a guest's thread would be too late. A double click
-there zooms, maximizes or minimizes as the user's settings say.
+there zooms, maximizes or minimizes as the user's settings say, but does
+not zoom a window that is not resizable: winit would, by setting its frame.
+A press finds the edge it resizes a `Custom` window by from the window's
+size and state at the press, not from the cursor shown, as the window may
+have changed under a pointer that has not moved since.
 
 ### Frames without a GPU
 

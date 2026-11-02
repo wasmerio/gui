@@ -10,8 +10,8 @@ use winit::event::{DeviceEvent, DeviceId, ElementState, Ime, StartCause, WindowE
 use winit::event_loop::{ActiveEventLoop, ControlFlow};
 use winit::monitor::MonitorHandle;
 use winit::window::{
-    CursorGrabMode, CustomCursor, Fullscreen as WinitFullscreen, ImePurpose, UserAttentionType,
-    Window, WindowId, WindowLevel,
+    CursorGrabMode, CustomCursor, Fullscreen as WinitFullscreen, ImePurpose, ResizeDirection,
+    UserAttentionType, Window, WindowId, WindowLevel,
 };
 
 use super::title_bar::{self, DoubleClick};
@@ -82,15 +82,20 @@ struct Entry {
     /// count clicks; a window that moved in between was dragged, not clicked.
     last_drag_press: Option<DragPress>,
     /// Whether the window's edges resize it: resizable, and neither maximized
-    /// nor fullscreen. Kept from the last report, as asking X11 on every
-    /// motion would be a round trip each time.
+    /// nor fullscreen. Kept from the last report for the cursor, as asking
+    /// X11 on every motion would be a round trip each time; a press asks the
+    /// window.
     resizes_from_edges: bool,
     /// Whether the window was fullscreen when its title bar was last
     /// reported: macOS leaves fullscreen after the last resize it reports.
     was_fullscreen: bool,
     /// The edge of a `Custom` window the cursor is over, which shows a
-    /// resize cursor instead of the guest's.
-    resize_edge: Option<winit::window::ResizeDirection>,
+    /// resize cursor instead of the guest's. Only for the cursor: a press
+    /// finds its edge again, as the window may have changed under a pointer
+    /// that has not moved since.
+    resize_edge: Option<ResizeDirection>,
+    /// Whether the pointer is in the window, where `cursor` is.
+    pointer_inside: bool,
     /// The cursor the guest asked for, shown again off the edges.
     guest_cursor: winit::window::Cursor,
 }
@@ -220,6 +225,15 @@ impl Entry {
             _ => [0, 0, size.width, physical(height)],
         };
         self.sink.title_bar(self.title_bar, area);
+        // This follows every change to the window's size, scale or state,
+        // as do the edges that resize it: a pointer that stayed put may be
+        // on one now, or off one. Not while the system moves or resizes the
+        // window, which owns the pointer meanwhile: Windows reports the
+        // sizes of its resize but none of the pointer's moves, and the
+        // cursor set would replace the one its resize shows.
+        if !self.owed_release {
+            self.hover_edges();
+        }
     }
 
     /// A press of the primary button that the window system takes, because
@@ -228,17 +242,30 @@ impl Entry {
     fn system_press(&mut self) -> bool {
         // Whatever release a move before kept, this press starts anew.
         self.owed_release = false;
-        if let Some(edge) = self.resize_edge {
+        // A fullscreen window is not resized, moved or zoomed.
+        let fullscreen = self.window.fullscreen().is_some();
+        // The edge is found from the window's size and state at the press,
+        // not from the cursor shown: the window may have been resized,
+        // maximized or made fullscreen under a pointer that has not moved
+        // since. The window is asked only on an edge of the size last
+        // reported, as on X11 each question is a round trip.
+        let edge = if self.edge_at(self.last_size(), true).is_some() {
+            let size = self.window.inner_size();
+            let resizable =
+                !fullscreen && self.window.is_resizable() && !self.window.is_maximized();
+            self.edge_at((size.width, size.height), resizable)
+        } else {
+            None
+        };
+        self.show_edge(edge);
+        if let Some(edge) = edge {
             if self.window.drag_resize_window(edge).is_ok() {
                 self.owed_release = true;
                 return true;
             }
             return false;
         }
-        // A fullscreen window is not moved, nor zoomed.
-        if self.window.fullscreen().is_some()
-            || !title_bar::in_regions(&self.drag_regions, self.cursor)
-        {
+        if fullscreen || !title_bar::in_regions(&self.drag_regions, self.cursor) {
             self.last_drag_press = None;
             return false;
         }
@@ -262,9 +289,14 @@ impl Entry {
         if double {
             self.last_drag_press = None;
             match title_bar::double_click_action() {
-                DoubleClick::Zoom => self.window.set_maximized(!self.window.is_maximized()),
+                // Not a window the user may not resize, as the system's own
+                // title bar does not zoom one either. winit maximizes one
+                // when asked to, by setting its frame.
+                DoubleClick::Zoom if self.window.is_resizable() => {
+                    self.window.set_maximized(!self.window.is_maximized());
+                }
                 DoubleClick::Minimize => self.window.set_minimized(true),
-                DoubleClick::Nothing => {}
+                DoubleClick::Zoom | DoubleClick::Nothing => {}
             }
             self.report_state();
         } else {
@@ -277,19 +309,36 @@ impl Entry {
         true
     }
 
+    /// The edge the pointer is on that resizes the window, when the window
+    /// is `size` big and its edges resize it or not (`resizable`): what the
+    /// cursor shown and a press both go by.
+    fn edge_at(&self, size: (u32, u32), resizable: bool) -> Option<ResizeDirection> {
+        if !resizable || !title_bar::host_resizes(self.title_bar) {
+            return None;
+        }
+        let band = title_bar::RESIZE_BAND * self.window.scale_factor();
+        title_bar::resize_edge(self.cursor, size, band)
+    }
+
     /// Shows a resize cursor over the edges of a `Custom` window, where the
     /// window system draws no frame to resize it by.
     fn hover_edges(&mut self) {
-        let edge = if self.title_bar == TitleBarStyle::Custom
-            && !cfg!(target_os = "macos")
-            && self.resizes_from_edges
-        {
-            let band = title_bar::RESIZE_BAND * self.window.scale_factor();
-            let size = self.size.load(std::sync::atomic::Ordering::Acquire);
-            title_bar::resize_edge(self.cursor, (size as u32, (size >> 32) as u32), band)
+        let edge = if self.pointer_inside {
+            self.edge_at(self.last_size(), self.resizes_from_edges)
         } else {
             None
         };
+        self.show_edge(edge);
+    }
+
+    /// The size last reported, in physical pixels.
+    fn last_size(&self) -> (u32, u32) {
+        let size = self.size.load(std::sync::atomic::Ordering::Acquire);
+        (size as u32, (size >> 32) as u32)
+    }
+
+    /// Shows the resize cursor for `edge`, or the guest's off the edges.
+    fn show_edge(&mut self, edge: Option<ResizeDirection>) {
         if edge != self.resize_edge {
             self.resize_edge = edge;
             match edge {
@@ -537,6 +586,7 @@ impl App {
             resizes_from_edges: false,
             was_fullscreen: false,
             resize_edge: None,
+            pointer_inside: false,
             guest_cursor: winit::window::CursorIcon::Default.into(),
         };
         // Everything the guest can ask about first, then the size, which is
@@ -587,6 +637,9 @@ impl App {
                 if let Some(size) = window.request_inner_size(PhysicalSize::new(width, height)) {
                     let scale_factor = window.scale_factor();
                     entry.resized(size.width, size.height, scale_factor);
+                    // As after a resize event: the title bar is as wide as
+                    // the window, and its edges have moved.
+                    entry.report_title_bar();
                 }
             }
             WindowChange::SizeLimits { min, max } => {
@@ -1005,17 +1058,18 @@ impl ApplicationHandler<()> for App {
             },
             WindowEvent::CursorMoved { position, .. } => {
                 entry.cursor = (position.x, position.y);
+                entry.pointer_inside = true;
                 entry.hover_edges();
                 entry.pointer(PointerPhase::Motion, 0);
             }
             WindowEvent::CursorEntered { .. } => {
                 entry.owed_release = false;
+                entry.pointer_inside = true;
                 entry.pointer(PointerPhase::Enter, 0);
             }
             WindowEvent::CursorLeft { .. } => {
-                if entry.resize_edge.take().is_some() {
-                    entry.window.set_cursor(entry.guest_cursor.clone());
-                }
+                entry.pointer_inside = false;
+                entry.show_edge(None);
                 entry.pointer(PointerPhase::Leave, 0);
             }
             WindowEvent::MouseInput { state, button, .. } => {

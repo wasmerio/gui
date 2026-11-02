@@ -2282,12 +2282,12 @@ extern "C" {
     /// Marks the parts of the content area that act as the window's title bar for the mouse:
     /// dragging there with the primary button moves the window, and a double click does what
     /// one on the system's title bar does (on macOS zoom, minimize or nothing, as the user's
-    /// settings say; elsewhere maximize or restore). They do nothing while the window is
-    /// fullscreen. Presses there are the host's and are not reported to the program; everything
-    /// else (motion, other buttons) is. `regions` replaces the regions before; none clears
-    /// them. A program with WGUITitleBarStyle_Overlay or Custom marks its title bar, less the
-    /// controls it draws in it, and again when its layout changes. Needs
-    /// WGUIFeatureName_DragRegions.
+    /// settings say; elsewhere maximize or restore), but never zooms or maximizes a window that
+    /// is not resizable. They do nothing while the window is fullscreen. Presses there are the
+    /// host's and are not reported to the program; everything else (motion, other buttons) is.
+    /// `regions` replaces the regions before; none clears them. A program with
+    /// WGUITitleBarStyle_Overlay or Custom marks its title bar, less the controls it draws in
+    /// it, and again when its layout changes. Needs WGUIFeatureName_DragRegions.
     pub fn wguiWindowSetDragRegions(window: WGUIWindow, regionCount: usize, regions: *const WGUIRect) -> WGUIStatus;
 
     /// Asks for keyboard focus and brings the window forward. Window systems may refuse.

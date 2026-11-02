@@ -9,7 +9,8 @@
 // it stops after its first frame, which is how the tests run it; otherwise
 // it runs until its window is closed, for trying it in a real window; with
 // --fullscreen it also goes fullscreen and back once, printing the title bar
-// it has in each.
+// it has in each. With --fixed its window is not resizable, which a double
+// click on its toolbar must not change.
 
 #include "wgui_test.h"
 
@@ -142,7 +143,7 @@ static const char* what_is_at(double x, double y) {
 int main(int argc, char** argv) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     WGUITitleBarStyle wanted = WGUITitleBarStyle_Overlay;
-    int once = 0, fullscreen_test = 0, phase = 0;
+    int once = 0, fullscreen_test = 0, fixed = 0, phase = 0;
     uint64_t entered = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "system")) wanted = WGUITitleBarStyle_System;
@@ -150,6 +151,7 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "custom")) wanted = WGUITitleBarStyle_Custom;
         else if (!strcmp(argv[i], "--once")) once = 1;
         else if (!strcmp(argv[i], "--fullscreen")) fullscreen_test = 1;
+        else if (!strcmp(argv[i], "--fixed")) fixed = 1;
     }
     OK(wguiCreateInstance(NULL, &instance));
     printf("overlay: %s, custom: %s, drag regions: %s\n",
@@ -160,6 +162,7 @@ int main(int argc, char** argv) {
     WGUIWindowDescriptor descriptor = WGUI_WINDOW_DESCRIPTOR_INIT;
     descriptor.title.data = "title bar";
     descriptor.options = WGUIWindowOptions_LogicalUnits;
+    if (fixed) descriptor.flags = WGUIWindowFlags_Visible | WGUIWindowFlags_Decorated;
     descriptor.width = 760;
     descriptor.height = 460;
     descriptor.titleBar = wanted;
