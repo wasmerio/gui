@@ -211,12 +211,16 @@ fn decode_png(file: &[u8], width: u32, height: u32) -> Option<Vec<u8>> {
     Some(match frame.color_type {
         png::ColorType::Rgba => pixels.to_vec(),
         png::ColorType::Rgb => pixels
-            .chunks_exact(3)
-            .flat_map(|pixel| [pixel[0], pixel[1], pixel[2], 0xFF])
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .flat_map(|&[r, g, b]| [r, g, b, 0xFF])
             .collect(),
         png::ColorType::GrayscaleAlpha => pixels
-            .chunks_exact(2)
-            .flat_map(|pixel| [pixel[0], pixel[0], pixel[0], pixel[1]])
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .flat_map(|&[value, alpha]| [value, value, value, alpha])
             .collect(),
         png::ColorType::Grayscale => pixels
             .iter()

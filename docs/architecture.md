@@ -192,9 +192,10 @@ later (`WindowAttributes::icon`, then `WindowChange::Icon`):
 - macOS has one icon for the process, in the Dock and the app switcher. The
   loop makes the icon given last to a window that is still open the
   application's (`NSApp.applicationIconImage`), with every image as a
-  representation of one picture, and puts the application's own back when no
-  window has one: a launcher that runs one program after another does not
-  show the last one's.
+  representation of one picture. It keeps a copy of the icon the application
+  had before, the embedder's or the bundle's, and puts it back when no window
+  has the guest's and when the loop ends, however it ends: a launcher that
+  runs one program after another does not show the last one's.
 - Windows has a small icon and a large one for each window: the title bar's,
   and the task bar's and the window switcher's. Each gets the image for the
   size Windows draws it at on the window's display (16 and 32 pixels times

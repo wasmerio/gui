@@ -382,9 +382,10 @@ pub(super) struct App {
     #[cfg(feature = "pixels")]
     painter: Option<super::pixels::Painter>,
     /// The windows that have the guest's icon, in the order they were given
-    /// it, and the icon shown as the application's (macOS: icon.rs).
+    /// it, and the application's icon (macOS: icon.rs), which puts the one
+    /// from before back when this is dropped.
     icon_order: Vec<WindowKey>,
-    app_icon: Option<Arc<Icon>>,
+    app_icon: super::icon::AppIcon,
 }
 
 impl App {
@@ -414,7 +415,7 @@ impl App {
             #[cfg(feature = "pixels")]
             painter: None,
             icon_order: Vec::new(),
-            app_icon: None,
+            app_icon: super::icon::AppIcon::new(),
         }
     }
 
@@ -645,7 +646,7 @@ impl App {
     }
 
     /// Where the process has one icon: shows the one given last to a window
-    /// that is still open, or the application's own.
+    /// that is still open, or the one the application had before.
     fn show_app_icon(&mut self) {
         if !super::icon::ONE_FOR_THE_PROCESS {
             return;
@@ -656,10 +657,7 @@ impl App {
             .and_then(|key| self.keys.get(key))
             .and_then(|id| self.windows.get(id))
             .and_then(|entry| entry.icon.clone());
-        if !crate::host::same_icon(&wanted, &self.app_icon) {
-            super::icon::show_app(wanted.as_deref());
-            self.app_icon = wanted;
-        }
+        self.app_icon.show(wanted);
     }
 
     fn change(&mut self, event_loop: &ActiveEventLoop, key: WindowKey, change: WindowChange) {

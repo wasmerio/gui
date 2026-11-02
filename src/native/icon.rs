@@ -2,9 +2,10 @@
 //!
 //! - macOS has one icon for the whole process, in the Dock and the app
 //!   switcher: the one given last to a window that is still open becomes
-//!   the application's ([`show_app`], which the loop calls), and with no
-//!   such window the application's own is back. It is given every image, as
-//!   the representations of one picture, and draws the one that suits each
+//!   the application's ([`AppIcon`], which the loop keeps). With no such
+//!   window, and once the loop has ended however it ended, the icon the
+//!   application had before is back. It is given every image, as the
+//!   representations of one picture, and draws the one that suits each
 //!   place.
 //! - Windows has two for each window: a small one for the title bar, and a
 //!   large one for the task bar and the window switcher. Each is one image,
@@ -12,6 +13,8 @@
 //! - X11 has one for each window, which task bars and window switchers draw
 //!   smaller. Wayland has none that winit sets: the feature is not offered
 //!   there.
+
+use std::sync::Arc;
 
 use winit::window::Window;
 
@@ -43,13 +46,44 @@ pub(super) fn show(window: &Window, icon: Option<&Icon>) {
     window.set_window_icon(icon.and_then(|icon| winit_icon(icon, X11_EDGE)));
 }
 
-/// Shows `icon` as the application's, or the application's own with `None`,
-/// where the process has one icon ([`ONE_FOR_THE_PROCESS`]).
-pub(super) fn show_app(icon: Option<&Icon>) {
+/// The application's icon, where the process has one
+/// ([`ONE_FOR_THE_PROCESS`]): a guest's while a window has it, and otherwise
+/// the one the application had before. That one comes back when this is
+/// dropped, so it does however the loop ends, even with windows a guest
+/// never closed. On the main thread.
+pub(super) struct AppIcon {
+    /// The guest's icon on show.
+    shown: Option<Arc<Icon>>,
+    /// The application's icon from before the guest's, while that is shown.
     #[cfg(target_os = "macos")]
-    mac::show(icon);
-    #[cfg(not(target_os = "macos"))]
-    let _ = icon;
+    before: Option<mac::Before>,
+}
+
+impl AppIcon {
+    pub(super) fn new() -> Self {
+        Self {
+            shown: None,
+            #[cfg(target_os = "macos")]
+            before: None,
+        }
+    }
+
+    /// Shows `icon` as the application's, or with `None` the one it had
+    /// before.
+    pub(super) fn show(&mut self, icon: Option<Arc<Icon>>) {
+        if crate::host::same_icon(&icon, &self.shown) {
+            return;
+        }
+        #[cfg(target_os = "macos")]
+        mac::show(&mut self.before, icon.as_deref());
+        self.shown = icon;
+    }
+}
+
+impl Drop for AppIcon {
+    fn drop(&mut self) {
+        self.show(None);
+    }
 }
 
 /// Whether the icon is drawn at sizes that follow the window's display, and
@@ -72,20 +106,39 @@ mod mac {
         NSApplication, NSBitmapFormat, NSBitmapImageRep, NSColorSpace, NSDeviceRGBColorSpace,
         NSImage,
     };
-    use objc2_foundation::NSSize;
+    use objc2_foundation::{NSCopying, NSSize};
 
     use crate::system::{Icon, IconImage};
 
-    pub(super) fn show(icon: Option<&Icon>) {
+    /// A copy of the application's icon from before the guest's. A copy,
+    /// because AppKit changes the picture it hands out into the one it is
+    /// given next.
+    pub(super) struct Before(Option<Retained<NSImage>>);
+
+    /// Shows `icon` as the application's, keeping the one from before in
+    /// `before` if it is not kept yet; with `None`, or an icon AppKit takes
+    /// none of the images of, puts that one back.
+    pub(super) fn show(before: &mut Option<Before>, icon: Option<&Icon>) {
         let Some(main) = MainThreadMarker::new() else {
             return;
         };
-        let image = icon.and_then(ns_image);
-        // SAFETY: on the main thread; nil puts the application's own icon
-        // back, as AppKit documents.
-        unsafe {
-            NSApplication::sharedApplication(main).setApplicationIconImage(image.as_deref());
-        }
+        let application = NSApplication::sharedApplication(main);
+        let image = match icon.and_then(ns_image) {
+            Some(image) => {
+                before.get_or_insert_with(|| {
+                    Before(application.applicationIconImage().map(|image| image.copy()))
+                });
+                Some(image)
+            }
+            None => match before.take() {
+                Some(Before(image)) => image,
+                // The guest's was never shown.
+                None => return,
+            },
+        };
+        // SAFETY: on the main thread. nil is taken: it puts the icon of the
+        // application's bundle back, as AppKit documents.
+        unsafe { application.setApplicationIconImage(image.as_deref()) };
     }
 
     /// One picture with every image as a representation of it: AppKit draws
