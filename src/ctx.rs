@@ -89,6 +89,9 @@ pub struct GuiPolicy {
     pub raw_input_unfocused: bool,
     /// Ask for the user's attention.
     pub attention: bool,
+    /// Set their icon: in the Dock or the task bar, on their windows, as
+    /// the page's icon where the page lets them.
+    pub app_icon: bool,
 }
 
 impl Default for GuiPolicy {
@@ -107,6 +110,7 @@ impl Default for GuiPolicy {
             raw_input: true,
             raw_input_unfocused: false,
             attention: true,
+            app_icon: true,
         }
     }
 }

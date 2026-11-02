@@ -1,0 +1,7 @@
+app icon: yes
+a PNG file: Success
+pixels for another size: InvalidArgument
+only for iOS: NotFound
+the icon: Success
+none: Success
+done

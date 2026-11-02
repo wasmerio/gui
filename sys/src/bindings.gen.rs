@@ -225,6 +225,8 @@ pub const WGUIFeatureName_TitleBarCustom: WGUIFeatureName = 0x00000022;
 /// wguiWindowSetDragRegions: parts of the content area that move the window, as a title bar
 /// does.
 pub const WGUIFeatureName_DragRegions: WGUIFeatureName = 0x00000023;
+/// wguiInstanceSetIcon: the system shows the program's icon.
+pub const WGUIFeatureName_AppIcon: WGUIFeatureName = 0x00000024;
 
 /// What is behind the window system.
 pub type WGUIHostKind = u32;
@@ -450,6 +452,16 @@ pub const WGUIPixelAlpha_Opaque: WGUIPixelAlpha = 0x00000001;
 pub const WGUIPixelAlpha_Premultiplied: WGUIPixelAlpha = 0x00000002;
 /// How much the pixel covers, with the colours as they are.
 pub const WGUIPixelAlpha_Straight: WGUIPixelAlpha = 0x00000003;
+
+/// How an image of the program's icon is stored (WGUIIconImage). A format added later comes
+/// with a WGUIFeatureName of its own: a program offers it where the host has that feature.
+pub type WGUIIconFormat = u32;
+/// Red, green, blue, alpha, 8 bits each, alpha not premultiplied, rows from the top, no
+/// padding: width * height * 4 bytes.
+pub const WGUIIconFormat_Rgba8: WGUIIconFormat = 0x00000001;
+/// A PNG file, of any colour type and bit depth. The host decodes it; of an animated one it
+/// shows the default image.
+pub const WGUIIconFormat_Png: WGUIIconFormat = 0x00000002;
 
 /// What an event record is. The high byte is its class.
 pub type WGUIEventType = u32;
@@ -988,6 +1000,19 @@ pub const WGUIInputDevices_Keyboard: WGUIInputDevices = 0x00000001;
 pub const WGUIInputDevices_Mouse: WGUIInputDevices = 0x00000002;
 pub const WGUIInputDevices_Touch: WGUIInputDevices = 0x00000004;
 pub const WGUIInputDevices_Pen: WGUIInputDevices = 0x00000008;
+
+/// Platforms a program makes something for, such as a version of its icon.
+pub type WGUIPlatforms = u32;
+pub const WGUIPlatforms_None: WGUIPlatforms = 0x00000000;
+pub const WGUIPlatforms_Macos: WGUIPlatforms = 0x00000001;
+/// iPhone and iPad.
+pub const WGUIPlatforms_Ios: WGUIPlatforms = 0x00000002;
+pub const WGUIPlatforms_Windows: WGUIPlatforms = 0x00000004;
+/// Linux and the other systems with X11 or Wayland desktops.
+pub const WGUIPlatforms_Linux: WGUIPlatforms = 0x00000008;
+pub const WGUIPlatforms_Android: WGUIPlatforms = 0x00000010;
+/// A web page.
+pub const WGUIPlatforms_Browser: WGUIPlatforms = 0x00000020;
 
 // -- Keys -----------------------------------------------------------------
 
@@ -1812,6 +1837,44 @@ impl Default for WGUIClipboardItem {
     }
 }
 
+/// One image of the program's icon, for wguiInstanceSetIcon.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct WGUIIconImage {
+    pub nextInChain: *mut WGUIChainedStruct,
+    /// The image's size in pixels: for a PNG, the size it was saved at. Icons are square: the
+    /// same as `height`.
+    pub width: u32,
+    pub height: u32,
+    pub format: WGUIIconFormat,
+    /// The platforms the image is made for. None: every platform, as far as no image is made
+    /// for it in particular.
+    pub platforms: WGUIPlatforms,
+    /// The image, stored as `format` says.
+    pub data: *const core::ffi::c_void,
+    /// How many bytes `data` holds.
+    pub size: usize,
+}
+
+impl WGUIIconImage {
+    /// What the header's `WGUI_ICON_IMAGE_INIT` is.
+    pub const INIT: Self = Self {
+        nextInChain: core::ptr::null_mut(),
+        width: 0,
+        height: 0,
+        format: 0,
+        platforms: 0x00000000,
+        data: core::ptr::null(),
+        size: 0,
+    };
+}
+
+impl Default for WGUIIconImage {
+    fn default() -> Self {
+        Self::INIT
+    }
+}
+
 // -- Event records --------------------------------------------------------
 
 /// What every event record starts with. Records are little-endian, 8-byte aligned, and say how
@@ -2223,6 +2286,28 @@ extern "C" {
     /// `tag` says whether the system took it.
     pub fn wguiInstanceWriteClipboard(instance: WGUIInstance, selection: WGUIClipboardSelection, itemCount: usize, items: *const WGUIClipboardItem, tag: u64) -> WGUIStatus;
 
+    /// Sets the program's icon: what the system shows for the program outside its windows'
+    /// content. On macOS that is the Dock and the app switcher; on Windows and X11, the title
+    /// bars of its windows, the task bar and the window switcher; in a browser, the page's
+    /// icon, where the embedder lets a program set it. It holds for the instance's windows,
+    /// those open and those opened later.
+    ///
+    /// `images` are the icon at several sizes, and in versions made for particular platforms,
+    /// which differ in more than their size: a macOS icon leaves a margin around its shape for
+    /// the shadow it casts, an iOS one fills its whole square and the system rounds the
+    /// corners. The host keeps the images made for its platform, or, if none is, those made for
+    /// every platform (`platforms` 0). Wherever it shows the icon it takes the smallest of them
+    /// that is at least as large as the icon is drawn there, or else the largest, and scales
+    /// it. Images made for other platforms are still checked.
+    ///
+    /// No images (`imageCount` 0) take the program's icon away: the one the system or the
+    /// embedder gives it comes back. On macOS, where the process has one icon, the Dock shows
+    /// the one given last to a window that is still open. WGUIStatus_NotFound: no image is for
+    /// this platform; the icon did not change. WGUIStatus_LimitExceeded: more than 32 images,
+    /// an edge longer than 1024 pixels, or more than 16 MiB kept, of files or of pixels. Needs
+    /// WGUIFeatureName_AppIcon.
+    pub fn wguiInstanceSetIcon(instance: WGUIInstance, imageCount: usize, images: *const WGUIIconImage) -> WGUIStatus;
+
     // WGUIDisplay
 
     /// The display's geometry, scale factor and refresh rate.
@@ -2529,6 +2614,13 @@ const _: () = {
     assert!(offset_of!(WGUIClipboardItem, mimeType) == 0);
     assert!(offset_of!(WGUIClipboardItem, data) == 8);
     assert!(offset_of!(WGUIClipboardItem, size) == 12);
+    assert!(size_of::<WGUIIconImage>() == 28);
+    assert!(offset_of!(WGUIIconImage, width) == 4);
+    assert!(offset_of!(WGUIIconImage, height) == 8);
+    assert!(offset_of!(WGUIIconImage, format) == 12);
+    assert!(offset_of!(WGUIIconImage, platforms) == 16);
+    assert!(offset_of!(WGUIIconImage, data) == 20);
+    assert!(offset_of!(WGUIIconImage, size) == 24);
     assert!(size_of::<WGUIEventsLostEvent>() == 48);
     assert!(offset_of!(WGUIEventsLostEvent, count) == 32);
     assert!(offset_of!(WGUIEventsLostEvent, reserved) == 36);

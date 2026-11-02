@@ -19,6 +19,7 @@
     {"name": "raw", "program": "events", "script": "raw", "args": ["--raw"]},
     {"name": "window_smoke", "program": "window_smoke"},
     {"name": "pixels", "program": "pixels"},
-    {"name": "title_bar_fallback", "program": "title_bar", "args": ["overlay", "--once"]}
+    {"name": "title_bar_fallback", "program": "title_bar", "args": ["overlay", "--once"]},
+    {"name": "icon", "program": "icon", "args": ["--once"]}
   ]
 }

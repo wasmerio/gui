@@ -326,6 +326,15 @@ impl<'a> GuestMemory<'a> {
             .map(|(ptr, len)| AbiError::OutOfBounds { ptr, len })
     }
 
+    /// Faults, as reading them would, unless the `len` bytes from `ptr` are
+    /// all in the memory.
+    pub fn check_range(&self, ptr: u32, len: u64) -> AbiResult<()> {
+        if u64::from(ptr) + len > self.size() {
+            return Err(self.fault(ptr, len));
+        }
+        Ok(())
+    }
+
     pub fn read_into(&self, ptr: u32, out: &mut [u8]) -> AbiResult<()> {
         self.view
             .read(u64::from(ptr), out)

@@ -51,6 +51,7 @@ int main(void) {
     printf("wguiInstanceReadClipboard: %s\n", status_name(wguiInstanceReadClipboard((WGUIInstance)0, (WGUIClipboardSelection)0, NULL, 0, NULL, 0, NULL)));
     printf("wguiInstanceRequestClipboard: %s\n", status_name(wguiInstanceRequestClipboard((WGUIInstance)0, (WGUIClipboardSelection)0, NULL, 0, 0)));
     printf("wguiInstanceWriteClipboard: %s\n", status_name(wguiInstanceWriteClipboard((WGUIInstance)0, (WGUIClipboardSelection)0, 0, NULL, 0)));
+    printf("wguiInstanceSetIcon: %s\n", status_name(wguiInstanceSetIcon((WGUIInstance)0, 0, NULL)));
     printf("wguiDisplayGetInfo: %s\n", status_name(wguiDisplayGetInfo((WGUIDisplay)0, NULL)));
     printf("wguiDisplayGetName: %s\n", status_name(wguiDisplayGetName((WGUIDisplay)0, NULL, 0, NULL)));
     wguiWindowDestroy((WGUIWindow)0);
@@ -78,6 +79,6 @@ int main(void) {
     printf("wguiWindowPresentPixels: %s\n", status_name(wguiWindowPresentPixels((WGUIWindow)0, NULL, 0, NULL)));
     wguiCursorDestroy((WGUICursor)0);
     printf("wguiCursorDestroy: returned\n");
-    printf("43 functions\n");
+    printf("44 functions\n");
     return 0;
 }

@@ -2663,3 +2663,374 @@ fn a_guest_of_another_minor_version_is_refused_before_1_0() {
     };
     assert_eq!(rig.host().open_instance(&other), Err(Status::Unsupported));
 }
+
+// -- the program's icon -------------------------------------------------------
+
+fn on_platform(platform: u32) -> Rig {
+    Rig::with(
+        HeadlessOptions {
+            platform,
+            ..manual()
+        },
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    )
+}
+
+/// An image of a guest's icon, its data written at `at`.
+fn icon_image(
+    rig: &Rig,
+    at: u32,
+    (width, height): (u32, u32),
+    format: IconFormat,
+    platforms: u32,
+    data: &[u8],
+) -> IconImage {
+    rig.write(at, data);
+    IconImage {
+        width,
+        height,
+        format,
+        platforms,
+        data: at,
+        size: data.len() as u32,
+    }
+}
+
+/// `width` by `height` pixels of one colour.
+fn filled(width: u32, height: u32, pixel: [u8; 4]) -> Vec<u8> {
+    pixel.repeat((width * height) as usize)
+}
+
+/// A PNG file of these pixels.
+fn png_file(
+    (width, height): (u32, u32),
+    color: png::ColorType,
+    depth: png::BitDepth,
+    palette: Option<&[u8]>,
+    pixels: &[u8],
+) -> Vec<u8> {
+    let mut file = Vec::new();
+    let mut encoder = png::Encoder::new(&mut file, width, height);
+    encoder.set_color(color);
+    encoder.set_depth(depth);
+    if let Some(palette) = palette {
+        encoder.set_palette(palette.to_vec());
+    }
+    let mut writer = encoder.write_header().expect("a header");
+    writer.write_image_data(pixels).expect("the pixels");
+    writer.finish().expect("the end");
+    file
+}
+
+fn set_icon(rig: &Rig, images: &[IconImage]) -> Status {
+    rig.call(|host, cx| host.instance_set_icon(cx, rig.instance, images))
+        .expect("no fault")
+}
+
+/// The sizes of the images a window was given, as the window system keeps
+/// them.
+fn icon_sizes(window: &HeadlessWindow) -> Option<Vec<(u32, u32)>> {
+    let icon = window.model().icon?;
+    Some(
+        icon.images
+            .iter()
+            .map(|image| (image.width, image.height))
+            .collect(),
+    )
+}
+
+#[test]
+fn an_icon_is_for_the_windows_open_and_those_opened_later() {
+    let rig = Rig::new();
+    assert!(rig.host().has(FeatureName::AppIcon));
+    let (_, before) = rig.window();
+    let images = [
+        icon_image(
+            &rig,
+            0x1000,
+            (16, 16),
+            IconFormat::Rgba8,
+            0,
+            &filled(16, 16, [1, 2, 3, 4]),
+        ),
+        icon_image(
+            &rig,
+            0x2000,
+            (32, 32),
+            IconFormat::Rgba8,
+            0,
+            &filled(32, 32, [5, 6, 7, 8]),
+        ),
+    ];
+    assert_eq!(set_icon(&rig, &images), Status::Success);
+    assert_eq!(before.take_requests(), ["icon 32x32,16x16"]);
+
+    let (_, after) = rig.window();
+    assert_eq!(icon_sizes(&after), Some(vec![(32, 32), (16, 16)]));
+    let icon = after.model().icon.expect("an icon");
+    assert_eq!(icon.images[1].rgba, filled(16, 16, [1, 2, 3, 4]));
+    // The smallest at least as big, or the largest.
+    for (edge, chosen) in [(8, 16), (16, 16), (17, 32), (32, 32), (256, 32)] {
+        assert_eq!(
+            icon.image_for(edge).map(|image| image.width),
+            Some(chosen),
+            "{edge}"
+        );
+    }
+
+    // None takes it away from every window.
+    assert_eq!(set_icon(&rig, &[]), Status::Success);
+    assert_eq!(before.take_requests(), ["icon none"]);
+    assert_eq!(after.take_requests(), ["icon none"]);
+    assert_eq!(icon_sizes(&before), None);
+    let (_, last) = rig.window();
+    assert_eq!(icon_sizes(&last), None);
+}
+
+#[test]
+fn the_versions_made_for_the_platform_are_kept() {
+    // One version for every platform, one for macOS, one for Windows and
+    // Linux.
+    let offer = |rig: &Rig| {
+        [
+            icon_image(
+                rig,
+                0x1000,
+                (16, 16),
+                IconFormat::Rgba8,
+                0,
+                &filled(16, 16, [0; 4]),
+            ),
+            icon_image(
+                rig,
+                0x2000,
+                (24, 24),
+                IconFormat::Rgba8,
+                platforms::MACOS,
+                &filled(24, 24, [0; 4]),
+            ),
+            icon_image(
+                rig,
+                0x4000,
+                (32, 32),
+                IconFormat::Rgba8,
+                platforms::WINDOWS | platforms::LINUX,
+                &filled(32, 32, [0; 4]),
+            ),
+        ]
+    };
+    for (platform, kept) in [
+        (0, (16, 16)),
+        (platforms::MACOS, (24, 24)),
+        (platforms::WINDOWS, (32, 32)),
+        (platforms::LINUX, (32, 32)),
+        (platforms::BROWSER, (16, 16)),
+    ] {
+        let rig = on_platform(platform);
+        let (_, window) = rig.window();
+        assert_eq!(
+            set_icon(&rig, &offer(&rig)),
+            Status::Success,
+            "{platform:#x}"
+        );
+        assert_eq!(icon_sizes(&window), Some(vec![kept]), "{platform:#x}");
+    }
+}
+
+#[test]
+fn an_icon_with_nothing_for_the_platform_changes_nothing() {
+    let rig = on_platform(platforms::WINDOWS);
+    let (_, window) = rig.window();
+    let every = [icon_image(
+        &rig,
+        0x1000,
+        (16, 16),
+        IconFormat::Rgba8,
+        0,
+        &filled(16, 16, [0; 4]),
+    )];
+    assert_eq!(set_icon(&rig, &every), Status::Success);
+    window.take_requests();
+    // For macOS, and for a platform a newer header names.
+    let elsewhere = [icon_image(
+        &rig,
+        0x2000,
+        (16, 16),
+        IconFormat::Rgba8,
+        platforms::MACOS | 0x8000_0000,
+        &filled(16, 16, [0; 4]),
+    )];
+    assert_eq!(set_icon(&rig, &elsewhere), Status::NotFound);
+    assert!(window.take_requests().is_empty());
+    assert_eq!(icon_sizes(&window), Some(vec![(16, 16)]));
+}
+
+#[test]
+fn png_icons_are_decoded_whatever_their_colours() {
+    use png::{BitDepth, ColorType};
+    let rig = Rig::new();
+    let (_, window) = rig.window();
+    let cases: [(Vec<u8>, [u8; 4]); 5] = [
+        (
+            png_file(
+                (2, 2),
+                ColorType::Rgba,
+                BitDepth::Eight,
+                None,
+                &[0xFF, 0, 0, 0x80].repeat(4),
+            ),
+            [0xFF, 0, 0, 0x80],
+        ),
+        (
+            png_file(
+                (2, 2),
+                ColorType::Rgb,
+                BitDepth::Eight,
+                None,
+                &[0, 0xFF, 0].repeat(4),
+            ),
+            [0, 0xFF, 0, 0xFF],
+        ),
+        (
+            png_file(
+                (2, 2),
+                ColorType::GrayscaleAlpha,
+                BitDepth::Eight,
+                None,
+                &[0x40, 0x80].repeat(4),
+            ),
+            [0x40, 0x40, 0x40, 0x80],
+        ),
+        (
+            png_file(
+                (2, 2),
+                ColorType::Rgba,
+                BitDepth::Sixteen,
+                None,
+                &[0xFF, 0xFF, 0, 0, 0x12, 0x34, 0x80, 0].repeat(4),
+            ),
+            [0xFF, 0, 0x12, 0x80],
+        ),
+        (
+            png_file(
+                (2, 2),
+                ColorType::Indexed,
+                BitDepth::Eight,
+                Some(&[0, 0, 0xFF]),
+                &[0; 4],
+            ),
+            [0, 0, 0xFF, 0xFF],
+        ),
+    ];
+    for (file, pixel) in cases {
+        let image = icon_image(&rig, 0x1000, (2, 2), IconFormat::Png, 0, &file);
+        assert_eq!(set_icon(&rig, &[image]), Status::Success);
+        let icon = window.model().icon.expect("an icon");
+        assert_eq!(icon.images[0].rgba, pixel.repeat(4));
+    }
+}
+
+#[test]
+fn icons_that_are_not_what_they_say_are_refused() {
+    use png::{BitDepth, ColorType};
+    let rig = Rig::new();
+    let file = png_file((2, 2), ColorType::Rgba, BitDepth::Eight, None, &[0; 16]);
+    let pixels = filled(2, 2, [0; 4]);
+    // The size an image says it has, its format and data, and the answer.
+    type Case<'a> = ((u32, u32), IconFormat, &'a [u8], Status);
+    let tall = filled(2, 4, [0; 4]);
+    let cases: [Case<'_>; 7] = [
+        // Pixels for another size.
+        ((4, 4), IconFormat::Rgba8, &pixels, Status::InvalidArgument),
+        // Not square.
+        ((2, 4), IconFormat::Rgba8, &tall, Status::InvalidArgument),
+        // A PNG file of another size.
+        ((4, 4), IconFormat::Png, &file, Status::InvalidArgument),
+        // Not a PNG file.
+        ((2, 2), IconFormat::Png, &pixels, Status::InvalidArgument),
+        // A PNG file cut short.
+        (
+            (2, 2),
+            IconFormat::Png,
+            &file[..file.len() - 20],
+            Status::InvalidArgument,
+        ),
+        // Nothing.
+        ((0, 0), IconFormat::Rgba8, &[], Status::InvalidArgument),
+        // Larger than any icon.
+        ((2048, 2048), IconFormat::Png, &file, Status::LimitExceeded),
+    ];
+    for (size, format, data, status) in cases {
+        let image = icon_image(&rig, 0x1000, size, format, 0, data);
+        assert_eq!(set_icon(&rig, &[image]), status, "{size:?} {format:?}");
+    }
+
+    // Versions for other platforms are checked too.
+    let images = [
+        icon_image(&rig, 0x1000, (2, 2), IconFormat::Rgba8, 0, &pixels),
+        icon_image(
+            &rig,
+            0x2000,
+            (4, 4),
+            IconFormat::Rgba8,
+            platforms::IOS,
+            &pixels,
+        ),
+    ];
+    assert_eq!(set_icon(&rig, &images), Status::InvalidArgument);
+
+    // Data that is not in the guest's memory is a fault.
+    let outside = IconImage {
+        width: 2,
+        height: 2,
+        format: IconFormat::Rgba8,
+        platforms: platforms::IOS,
+        data: 0xFFF8,
+        size: 16,
+    };
+    let fault = rig.call(|host, cx| host.instance_set_icon(cx, rig.instance, &[outside]));
+    assert!(
+        matches!(fault, Err(crate::abi::AbiError::OutOfBounds { .. })),
+        "{fault:?}"
+    );
+}
+
+#[test]
+fn an_icon_has_a_most_it_can_weigh() {
+    let rig = Rig::new();
+    let pixel = icon_image(&rig, 0x1000, (1, 1), IconFormat::Rgba8, 0, &[0; 4]);
+    assert_eq!(set_icon(&rig, &vec![pixel.clone(); 32]), Status::Success);
+    assert_eq!(set_icon(&rig, &vec![pixel; 33]), Status::LimitExceeded);
+
+    // Five of the largest images are more pixels than one icon keeps. Their
+    // files are never read beyond the size they say they are.
+    let mut start = vec![0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13];
+    start.extend_from_slice(b"IHDR");
+    start.extend_from_slice(&1024u32.to_be_bytes());
+    start.extend_from_slice(&1024u32.to_be_bytes());
+    let large = icon_image(&rig, 0x2000, (1024, 1024), IconFormat::Png, 0, &start);
+    assert_eq!(set_icon(&rig, &vec![large; 5]), Status::LimitExceeded);
+
+    // A file larger than any icon needs is refused before it is read.
+    let heavy = IconImage {
+        size: 17 << 20,
+        ..icon_image(&rig, 0x2000, (2, 2), IconFormat::Png, 0, &start)
+    };
+    assert_eq!(set_icon(&rig, &[heavy]), Status::LimitExceeded);
+}
+
+#[test]
+fn an_embedder_can_keep_the_icon_its_own() {
+    let rig = Rig::with(
+        manual(),
+        GuiPolicy {
+            app_icon: false,
+            ..GuiPolicy::default()
+        },
+        GuiLimits::default(),
+    );
+    assert!(!rig.host().has(FeatureName::AppIcon));
+    let image = icon_image(&rig, 0x1000, (1, 1), IconFormat::Rgba8, 0, &[0; 4]);
+    assert_eq!(set_icon(&rig, &[image]), Status::Unsupported);
+}

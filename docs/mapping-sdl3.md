@@ -44,7 +44,7 @@ Two things that run decided the order of work here:
 | 8 | `SetDisplayMode` | | later (exclusive fullscreen) |
 | 9 | `CreateSDLWindow` | `wguiInstanceCreateWindow` with `WGUIWindowOptions_LogicalUnits` | yes |
 | 10 | `SetWindowTitle` | `wguiWindowSetTitle` | yes |
-| 11 | `SetWindowIcon` | | later |
+| 11 | `SetWindowIcon` | | later: `wguiInstanceSetIcon` is the program's icon, for all its windows, where SDL's is one window's |
 | 12 | `SetWindowPosition` | `wguiWindowSetPosition` | yes, where `WindowPosition` |
 | 13 | `SetWindowSize` | `wguiWindowSetSize`; SDL is told by the `WindowResized` that follows | yes |
 | 14, 15 | `SetWindowMinimumSize`, `SetWindowMaximumSize` | `wguiWindowSetSizeLimits` | yes |

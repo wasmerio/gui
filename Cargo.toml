@@ -68,6 +68,8 @@ crossbeam-queue = "0.3"
 # builds patch them to one pinned Wasmer revision (see `[patch.crates-io]`
 # below).
 wasmer = { version = "7.5", default-features = false }
+# Guests hand their icons over as PNG files (`wguiInstanceSetIcon`).
+png = "0.18"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 wasmer = { version = "7.5", default-features = false, features = ["sys-default"] }
@@ -87,9 +89,10 @@ wasmer-types = { version = "7.5", optional = true }
 [target.'cfg(target_os = "macos")'.dependencies]
 dispatch2 = { version = "0.3.1", default-features = false, features = ["alloc"] }
 # AppKit, for the window controls of title bars the guest draws
-# (src/native/title_bar.rs). The versions winit's own dependencies resolve to.
+# (src/native/title_bar.rs) and the Dock's icon (src/native/icon.rs). The
+# versions winit's own dependencies resolve to.
 objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSApplication", "NSButton", "NSControl", "NSEvent", "NSResponder", "NSView", "NSWindow"] }
+objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSApplication", "NSBitmapImageRep", "NSButton", "NSColorSpace", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, optional = true, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

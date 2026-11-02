@@ -153,6 +153,15 @@ OFFSET(WGUIClipboardItem, mimeType, 0);
 OFFSET(WGUIClipboardItem, data, 8);
 OFFSET(WGUIClipboardItem, size, 12);
 
+SIZE(WGUIIconImage, 28, 4);
+OFFSET(WGUIIconImage, nextInChain, 0);
+OFFSET(WGUIIconImage, width, 4);
+OFFSET(WGUIIconImage, height, 8);
+OFFSET(WGUIIconImage, format, 12);
+OFFSET(WGUIIconImage, platforms, 16);
+OFFSET(WGUIIconImage, data, 20);
+OFFSET(WGUIIconImage, size, 24);
+
 SIZE(WGUIEventHeader, 32, 8);
 OFFSET(WGUIEventHeader, size, 0);
 OFFSET(WGUIEventHeader, type, 4);
@@ -366,6 +375,7 @@ VALUE(WGUIFeatureName_RedrawReasons, 0x20ULL);
 VALUE(WGUIFeatureName_TitleBarOverlay, 0x21ULL);
 VALUE(WGUIFeatureName_TitleBarCustom, 0x22ULL);
 VALUE(WGUIFeatureName_DragRegions, 0x23ULL);
+VALUE(WGUIFeatureName_AppIcon, 0x24ULL);
 
 SIZE(WGUIHostKind, 4, 4);
 VALUE(WGUIHostKind_Unknown, 0x0ULL);
@@ -517,6 +527,10 @@ SIZE(WGUIPixelAlpha, 4, 4);
 VALUE(WGUIPixelAlpha_Opaque, 0x1ULL);
 VALUE(WGUIPixelAlpha_Premultiplied, 0x2ULL);
 VALUE(WGUIPixelAlpha_Straight, 0x3ULL);
+
+SIZE(WGUIIconFormat, 4, 4);
+VALUE(WGUIIconFormat_Rgba8, 0x1ULL);
+VALUE(WGUIIconFormat_Png, 0x2ULL);
 
 SIZE(WGUIEventType, 4, 4);
 VALUE(WGUIEventType_EventsLost, 0x101ULL);
@@ -808,6 +822,8 @@ SIZE(WGUIDefaultActions, 4, 4);
 SIZE(WGUIDisplayFlags, 4, 4);
 
 SIZE(WGUIInputDevices, 4, 4);
+
+SIZE(WGUIPlatforms, 4, 4);
 
 VALUE(WGUIKey_Unidentified, 0x0ULL);
 VALUE(WGUIKey_Backspace, 0x1000008ULL);
@@ -1249,5 +1265,12 @@ int wgui_abi_check_flags(void) {
     wrong += WGUIInputDevices_Mouse != 0x00000002;
     wrong += WGUIInputDevices_Touch != 0x00000004;
     wrong += WGUIInputDevices_Pen != 0x00000008;
+    wrong += WGUIPlatforms_None != 0x00000000;
+    wrong += WGUIPlatforms_Macos != 0x00000001;
+    wrong += WGUIPlatforms_Ios != 0x00000002;
+    wrong += WGUIPlatforms_Windows != 0x00000004;
+    wrong += WGUIPlatforms_Linux != 0x00000008;
+    wrong += WGUIPlatforms_Android != 0x00000010;
+    wrong += WGUIPlatforms_Browser != 0x00000020;
     return wrong;
 }

@@ -386,6 +386,74 @@ test("a cursor is the canvas's, in the names CSS has", { skip }, async (context)
   assert.deepEqual(errors, []);
 });
 
+test("the program's icon is the page's to show, as pictures", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  const result = await page.evaluate(async () => {
+    const { setPageIcon } = await import("/js/gui_page.js");
+    const own = document.createElement("link");
+    own.rel = "icon";
+    own.href = "/own.svg";
+    document.head.append(own);
+    const icons = () =>
+      [...document.head.querySelectorAll('link[rel~="icon"]')].map((link) => [
+        link.getAttribute("sizes"),
+        link.getAttribute("href").slice(0, 22),
+      ]);
+    const handed = [];
+    const gui = harness.open({
+      icon: (pictures, canvas) => {
+        handed.push([pictures.map(({ width, height, href }) => [width, height, href.slice(0, 22)]), canvas.id]);
+        setPageIcon(document, pictures, canvas);
+      },
+    });
+    // Red, 2 by 2, and blue, 1 by 1: the icon the window opens with.
+    const red = { rgba: new Uint8Array(16).map((_, i) => [255, 0, 0, 255][i % 4]), width: 2, height: 2 };
+    const blue = { rgba: new Uint8Array([0, 0, 255, 255]), width: 1, height: 1 };
+    gui.createWindow(1, { target: "", icon: [red, blue] });
+    const shown = icons();
+    // What the guest drew is in the picture.
+    const image = new Image();
+    image.src = document.head.querySelector('link[sizes="2x2"]').href;
+    await image.decode();
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 2;
+    const drawn = canvas.getContext("2d");
+    drawn.drawImage(image, 0, 0);
+    const pixel = Array.from(drawn.getImageData(0, 0, 1, 1).data);
+    gui.setIcon(1, []);
+    const cleared = icons();
+    // Two windows with the icon: closing one leaves it to the other.
+    gui.setIcon(1, [blue]);
+    gui.createWindow(2, { target: "other", icon: [blue] });
+    gui.destroyWindow(1);
+    const kept = icons();
+    gui.destroyWindow(2);
+    const after = icons();
+    gui.dispose();
+    return { handed, shown, pixel, cleared, kept, after, own: own.isConnected && own.rel };
+  });
+  const png = "data:image/png;base64,";
+  assert.deepEqual(result.handed, [
+    [[[2, 2, png], [1, 1, png]], "view"],
+    [[], "view"],
+    [[[1, 1, png]], "view"],
+    [[[1, 1, png]], "other"],
+    // The windows went, and their icon with them.
+    [[], "view"],
+    [[], "other"],
+  ]);
+  assert.deepEqual(result.shown, [["2x2", png], ["1x1", png]]);
+  assert.deepEqual(result.pixel, [255, 0, 0, 255]);
+  // The page's own icon comes back, where it was.
+  assert.deepEqual(result.cleared, [[null, "/own.svg"]]);
+  assert.deepEqual(result.kept, [["1x1", png]]);
+  assert.deepEqual(result.after, [[null, "/own.svg"]]);
+  assert.equal(result.own, "icon");
+  assert.deepEqual(errors, []);
+});
+
 test("fullscreen and the cursor lock wait for something the user does", { skip }, async (context) => {
   const { page, errors, unavailable } = await openPage(context);
   if (unavailable) return context.skip(unavailable);

@@ -171,6 +171,44 @@ A press finds the edge it resizes a `Custom` window by from the window's
 size and state at the press, not from the cursor shown, as the window may
 have changed under a pointer that has not moved since.
 
+### The program's icon
+
+`wguiInstanceSetIcon` takes the program's icon as square images, raw or PNG
+files, and each image may name the platforms it is made for: icons differ
+from one platform to the next in more than their size. A macOS icon keeps a
+margin around its shape for its shadow, an iOS one fills its square and lets
+the system round it, a favicon may want fewer details. The host checks every
+image on the guest's thread, keeps those made for its window system's
+platform (`SystemInfo::platform`), or else those made for every platform,
+and decodes them from one copy of each file, which the guest's other threads
+cannot change under the decoder. A window system is handed only that
+(`system::Icon`), the largest image first. Wherever it shows the icon it
+takes the smallest image at least as large as the icon is drawn there, or
+else the largest (`Icon::image_for`), and scales it.
+
+The icon is the instance's, for the windows it has open and those it opens
+later (`WindowAttributes::icon`, then `WindowChange::Icon`):
+
+- macOS has one icon for the process, in the Dock and the app switcher. The
+  loop makes the icon given last to a window that is still open the
+  application's (`NSApp.applicationIconImage`), with every image as a
+  representation of one picture, and puts the application's own back when no
+  window has one: a launcher that runs one program after another does not
+  show the last one's.
+- Windows has a small icon and a large one for each window: the title bar's,
+  and the task bar's and the window switcher's. Each gets the image for the
+  size Windows draws it at on the window's display (16 and 32 pixels times
+  the scale factor), again when the window moves to a display of another
+  scale.
+- X11 has one icon for each window (`_NET_WM_ICON`), which gets the image
+  for 128 pixels. winit sets none on Wayland, so it is not offered there.
+- In a browser the page decides: the `icon` option of `createGuiPage` is
+  handed the images as PNG pictures with the canvas, and `setPageIcon` makes
+  them the tab's icon on behalf of that canvas, until no canvas wants one.
+  Without that option the feature is not offered.
+- The headless system keeps the icon on the window's model, and stands in for
+  the platform its options name (`HeadlessOptions::platform`).
+
 ### Frames without a GPU
 
 `wguiWindowPresentPixels` copies the guest's frame out of its memory during

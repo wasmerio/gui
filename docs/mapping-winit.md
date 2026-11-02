@@ -82,7 +82,7 @@ decides from `wguiHasFeature`.
 | `pre_present_notify`, `reset_dead_keys` | nothing to do | yes |
 | `set_cursor_hittest`, `drag_window`, `drag_resize_window`, `show_window_menu` | `NotSupported`: a move started from a guest's thread comes after the press it belongs to; the host moves windows by the regions of `wguiWindowSetDragRegions` instead | later |
 | `set_transparent` | `wguiWindowSetFlags` (`Transparent`) | yes, where the host has such windows |
-| `set_window_icon`, `set_theme`, `set_resize_increments`, `set_enabled_buttons`, `set_content_protected`, `set_blur` | no-ops, as on other platforms | later |
+| `set_window_icon`, `set_theme`, `set_resize_increments`, `set_enabled_buttons`, `set_content_protected`, `set_blur` | no-ops, as on other platforms. `wguiInstanceSetIcon` is the program's icon, for all its windows, where winit's is one window's | later |
 | `window_handle`, `display_handle` | `RawWindowHandle::Web` carrying the `WGUIWindow`, until raw-window-handle has a variant for it | see below |
 
 ## Events

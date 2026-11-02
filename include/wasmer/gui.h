@@ -290,6 +290,8 @@ typedef enum WGUIFeatureName {
      * does.
      */
     WGUIFeatureName_DragRegions = 0x00000023,
+    /** wguiInstanceSetIcon: the system shows the program's icon. */
+    WGUIFeatureName_AppIcon = 0x00000024,
     WGUIFeatureName_Force32 = 0x7FFFFFFF
 } WGUIFeatureName;
 
@@ -577,6 +579,24 @@ typedef enum WGUIPixelAlpha {
     WGUIPixelAlpha_Straight = 0x00000003,
     WGUIPixelAlpha_Force32 = 0x7FFFFFFF
 } WGUIPixelAlpha;
+
+/**
+ * How an image of the program's icon is stored (WGUIIconImage). A format added later comes with
+ * a WGUIFeatureName of its own: a program offers it where the host has that feature.
+ */
+typedef enum WGUIIconFormat {
+    /**
+     * Red, green, blue, alpha, 8 bits each, alpha not premultiplied, rows from the top, no
+     * padding: width * height * 4 bytes.
+     */
+    WGUIIconFormat_Rgba8 = 0x00000001,
+    /**
+     * A PNG file, of any colour type and bit depth. The host decodes it; of an animated one it
+     * shows the default image.
+     */
+    WGUIIconFormat_Png = 0x00000002,
+    WGUIIconFormat_Force32 = 0x7FFFFFFF
+} WGUIIconFormat;
 
 /** What an event record is. The high byte is its class. */
 typedef enum WGUIEventType {
@@ -1161,6 +1181,19 @@ static const WGUIInputDevices WGUIInputDevices_Keyboard = 0x00000001;
 static const WGUIInputDevices WGUIInputDevices_Mouse = 0x00000002;
 static const WGUIInputDevices WGUIInputDevices_Touch = 0x00000004;
 static const WGUIInputDevices WGUIInputDevices_Pen = 0x00000008;
+
+/** Platforms a program makes something for, such as a version of its icon. */
+typedef uint32_t WGUIPlatforms;
+static const WGUIPlatforms WGUIPlatforms_None = 0x00000000;
+static const WGUIPlatforms WGUIPlatforms_Macos = 0x00000001;
+/** iPhone and iPad. */
+static const WGUIPlatforms WGUIPlatforms_Ios = 0x00000002;
+static const WGUIPlatforms WGUIPlatforms_Windows = 0x00000004;
+/** Linux and the other systems with X11 or Wayland desktops. */
+static const WGUIPlatforms WGUIPlatforms_Linux = 0x00000008;
+static const WGUIPlatforms WGUIPlatforms_Android = 0x00000010;
+/** A web page. */
+static const WGUIPlatforms WGUIPlatforms_Browser = 0x00000020;
 
 // -- Keys -----------------------------------------------------------------
 
@@ -1872,6 +1905,37 @@ typedef struct WGUIClipboardItem {
     /*.size=*/0 \
 })
 
+/** One image of the program's icon, for wguiInstanceSetIcon. */
+typedef struct WGUIIconImage {
+    WGUIChainedStruct* nextInChain;
+    /**
+     * The image's size in pixels: for a PNG, the size it was saved at. Icons are square: the
+     * same as `height`.
+     */
+    uint32_t width;
+    uint32_t height;
+    WGUIIconFormat format;
+    /**
+     * The platforms the image is made for. None: every platform, as far as no image is made for
+     * it in particular.
+     */
+    WGUIPlatforms platforms;
+    /** The image, stored as `format` says. */
+    const void* data;
+    /** How many bytes `data` holds. */
+    size_t size;
+} WGUIIconImage;
+
+#define WGUI_ICON_IMAGE_INIT WGUI_MAKE_INIT_STRUCT(WGUIIconImage, { \
+    /*.nextInChain=*/NULL WGUI_COMMA \
+    /*.width=*/0 WGUI_COMMA \
+    /*.height=*/0 WGUI_COMMA \
+    /*.format=*/(WGUIIconFormat)0 WGUI_COMMA \
+    /*.platforms=*/0x00000000 WGUI_COMMA \
+    /*.data=*/NULL WGUI_COMMA \
+    /*.size=*/0 \
+})
+
 // -- Event records --------------------------------------------------------
 
 /**
@@ -2315,6 +2379,30 @@ WGUIStatus wguiInstanceRequestClipboard(WGUIInstance instance, WGUIClipboardSele
  */
 WGUI_IMPORT(wguiInstanceWriteClipboard)
 WGUIStatus wguiInstanceWriteClipboard(WGUIInstance instance, WGUIClipboardSelection selection, size_t itemCount, const WGUIClipboardItem* items, uint64_t tag);
+
+/**
+ * Sets the program's icon: what the system shows for the program outside its windows' content.
+ * On macOS that is the Dock and the app switcher; on Windows and X11, the title bars of its
+ * windows, the task bar and the window switcher; in a browser, the page's icon, where the
+ * embedder lets a program set it. It holds for the instance's windows, those open and those
+ * opened later.
+ *
+ * `images` are the icon at several sizes, and in versions made for particular platforms, which
+ * differ in more than their size: a macOS icon leaves a margin around its shape for the shadow
+ * it casts, an iOS one fills its whole square and the system rounds the corners. The host keeps
+ * the images made for its platform, or, if none is, those made for every platform (`platforms`
+ * 0). Wherever it shows the icon it takes the smallest of them that is at least as large as the
+ * icon is drawn there, or else the largest, and scales it. Images made for other platforms are
+ * still checked.
+ *
+ * No images (`imageCount` 0) take the program's icon away: the one the system or the embedder
+ * gives it comes back. On macOS, where the process has one icon, the Dock shows the one given
+ * last to a window that is still open. WGUIStatus_NotFound: no image is for this platform; the
+ * icon did not change. WGUIStatus_LimitExceeded: more than 32 images, an edge longer than 1024
+ * pixels, or more than 16 MiB kept, of files or of pixels. Needs WGUIFeatureName_AppIcon.
+ */
+WGUI_IMPORT(wguiInstanceSetIcon)
+WGUIStatus wguiInstanceSetIcon(WGUIInstance instance, size_t imageCount, const WGUIIconImage* images);
 
 // WGUIDisplay
 

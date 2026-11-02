@@ -66,6 +66,10 @@ pub struct HeadlessOptions {
     pub theme: Theme,
     /// The modifier of the platform's shortcuts.
     pub shortcut_modifier: u32,
+    /// The platform it stands in for, as a [`platforms`] bit: which
+    /// versions of a guest's icon it keeps. 0 keeps those made for every
+    /// platform.
+    pub platform: u32,
     /// Whether the clipboard can be read without asking first. Off behaves
     /// as a browser does: a read answers `Pending` until a request is made.
     pub clipboard_sync: bool,
@@ -88,6 +92,7 @@ impl Default for HeadlessOptions {
             top_level: true,
             theme: Theme::Light,
             shortcut_modifier: modifiers::CONTROL,
+            platform: 0,
             clipboard_sync: true,
             clock: HeadlessClock::Real,
             redraws: HeadlessRedraws::Immediate,
@@ -256,6 +261,8 @@ pub struct HeadlessWindowModel {
     pub text_input: Option<TextInput>,
     /// The [`default_actions`] the guest wants prevented.
     pub default_actions: u32,
+    /// The guest's icon, if it set one.
+    pub icon: Option<Arc<Icon>>,
     /// The size to return to when fullscreen ends.
     restore: (u32, u32),
 }
@@ -438,6 +445,21 @@ impl WindowState {
     }
 }
 
+/// The sizes of an icon's images, in words: `64x64,16x16`, or `none`.
+fn icon_sizes(icon: Option<&Icon>) -> String {
+    icon.map_or_else(
+        || "none".to_owned(),
+        |icon| {
+            let sizes: Vec<String> = icon
+                .images
+                .iter()
+                .map(|image| format!("{}x{}", image.width, image.height))
+                .collect();
+            sizes.join(",")
+        },
+    )
+}
+
 struct Window(Arc<WindowState>);
 
 impl HostWindow for Window {
@@ -452,6 +474,10 @@ impl HostWindow for Window {
             WindowChange::Title(title) => {
                 window.note(format!("title {title:?}"));
                 lock(&window.model).title = title;
+            }
+            WindowChange::Icon(icon) => {
+                window.note(format!("icon {}", icon_sizes(icon.as_deref())));
+                lock(&window.model).icon = icon;
             }
             WindowChange::Size { width, height } => {
                 window.note(format!("size {width}x{height}"));
@@ -929,6 +955,7 @@ impl WindowSystem for HeadlessSystem {
             ClipboardText,
             Theme,
             PixelPresent,
+            AppIcon,
         ];
         if options.top_level {
             features.push(TopLevelWindows);
@@ -943,6 +970,7 @@ impl WindowSystem for HeadlessSystem {
             input_devices: input_devices::KEYBOARD | input_devices::MOUSE,
             theme: options.theme,
             max_cursor_size: 256,
+            platform: options.platform,
         }
     }
 
@@ -1029,6 +1057,7 @@ impl WindowSystem for HeadlessSystem {
             cursor_grab: CursorGrab::None,
             text_input: None,
             default_actions: default_actions::DEFAULT,
+            icon: attributes.icon,
             restore: size,
         };
 

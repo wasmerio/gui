@@ -77,6 +77,7 @@ impl Default for ViewOptions {
                 input_devices: 0,
                 theme: Theme::Unknown,
                 max_cursor_size: 0,
+                platform: 0,
             },
             answer_timeout: Duration::from_secs(10),
         }

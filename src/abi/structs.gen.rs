@@ -365,3 +365,29 @@ impl GuestRead for ClipboardItem {
     }
 }
 
+/// `WGUIIconImage`: 28 bytes, align 4 on wasm32.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IconImage {
+    pub width: u32,
+    pub height: u32,
+    pub format: IconFormat,
+    pub platforms: u32,
+    pub data: u32,
+    pub size: u32,
+}
+impl GuestRead for IconImage {
+    const SIZE: u32 = 28;
+    fn read(mem: &GuestMemory<'_>, ptr: u32) -> AbiResult<Self> {
+        let b = mem.read_bytes::<28>(ptr)?;
+        mem.check_chain(rd_u32(&b, 0))?;
+        Ok(Self {
+            width: rd_u32(&b, 4),
+            height: rd_u32(&b, 8),
+            format: IconFormat::from_abi(rd_u32(&b, 12))?,
+            platforms: rd_u32(&b, 16),
+            data: rd_u32(&b, 20),
+            size: rd_u32(&b, 24),
+        })
+    }
+}
+

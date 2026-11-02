@@ -59,6 +59,7 @@ impl Host {
         let state = Arc::new(Instance {
             shared: Arc::clone(&shared),
             application_id: descriptor.application_id.clone(),
+            icon: std::sync::Mutex::new(None),
         });
         let handle = self
             .insert(Object::Instance(state), 0)
