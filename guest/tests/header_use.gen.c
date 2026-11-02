@@ -62,6 +62,10 @@ size_t wgui_header_use(void) {
         total += sizeof value;
     }
     {
+        WGUIIconImage value = WGUI_ICON_IMAGE_INIT;
+        total += sizeof value;
+    }
+    {
         uint64_t buffer[WGUI_MAX_EVENT_SIZE / 8];
         const WGUIEventHeader* event;
         buffer[0] = 0;

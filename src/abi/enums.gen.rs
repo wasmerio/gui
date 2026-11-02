@@ -169,6 +169,7 @@ pub enum FeatureName {
     TitleBarOverlay = 0x21,
     TitleBarCustom = 0x22,
     DragRegions = 0x23,
+    AppIcon = 0x24,
 }
 impl Default for FeatureName {
     fn default() -> Self {
@@ -214,6 +215,7 @@ impl AbiEnum for FeatureName {
             0x21 => Self::TitleBarOverlay,
             0x22 => Self::TitleBarCustom,
             0x23 => Self::DragRegions,
+            0x24 => Self::AppIcon,
             _ => return None,
         })
     }
@@ -257,6 +259,7 @@ impl AbiEnum for FeatureName {
             Self::TitleBarOverlay => "TitleBarOverlay",
             Self::TitleBarCustom => "TitleBarCustom",
             Self::DragRegions => "DragRegions",
+            Self::AppIcon => "AppIcon",
         }
     }
 }
@@ -298,6 +301,7 @@ impl FeatureName {
         Self::TitleBarOverlay,
         Self::TitleBarCustom,
         Self::DragRegions,
+        Self::AppIcon,
     ];
     pub fn from_abi(value: u32) -> AbiResult<Self> {
         Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
@@ -1422,6 +1426,48 @@ impl PixelAlpha {
         Self::Opaque,
         Self::Premultiplied,
         Self::Straight,
+    ];
+    pub fn from_abi(value: u32) -> AbiResult<Self> {
+        Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
+    }
+}
+
+/// `WGUIIconFormat`
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IconFormat {
+    Rgba8 = 0x1,
+    Png = 0x2,
+}
+impl Default for IconFormat {
+    fn default() -> Self {
+        Self::Rgba8
+    }
+}
+impl AbiEnum for IconFormat {
+    const NAME: &'static str = "WGUIIconFormat";
+    fn from_u32(value: u32) -> Option<Self> {
+        Some(match value {
+            0x1 => Self::Rgba8,
+            0x2 => Self::Png,
+            _ => return None,
+        })
+    }
+    fn as_u32(self) -> u32 {
+        self as u32
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Rgba8 => "Rgba8",
+            Self::Png => "Png",
+        }
+    }
+}
+impl IconFormat {
+    /// Every value, in the order of the header.
+    pub const ALL: &'static [Self] = &[
+        Self::Rgba8,
+        Self::Png,
     ];
     pub fn from_abi(value: u32) -> AbiResult<Self> {
         Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
@@ -2870,6 +2916,28 @@ pub mod input_devices {
         ("Mouse", 0x2),
         ("Touch", 0x4),
         ("Pen", 0x8),
+    ];
+}
+
+/// `WGUIPlatforms` (a `uint32_t` in the C API)
+pub mod platforms {
+    pub const NONE: u32 = 0x0;
+    pub const MACOS: u32 = 0x1;
+    pub const IOS: u32 = 0x2;
+    pub const WINDOWS: u32 = 0x4;
+    pub const LINUX: u32 = 0x8;
+    pub const ANDROID: u32 = 0x10;
+    pub const BROWSER: u32 = 0x20;
+    /// Every bit this version defines.
+    pub const KNOWN: u32 = 0x3F;
+    /// (name, bits) of the single-purpose entries, for printing.
+    pub const NAMES: &[(&str, u32)] = &[
+        ("Macos", 0x1),
+        ("Ios", 0x2),
+        ("Windows", 0x4),
+        ("Linux", 0x8),
+        ("Android", 0x10),
+        ("Browser", 0x20),
     ];
 }
 

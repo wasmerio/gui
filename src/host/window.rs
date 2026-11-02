@@ -75,6 +75,7 @@ impl Host {
         if positioned && !self.has(FeatureName::WindowPosition) {
             return Err(Status::Unsupported);
         }
+        let icon = lock(&state.icon).clone();
         let attributes = WindowAttributes {
             title: descriptor.title.clone(),
             target: descriptor.target.clone(),
@@ -90,6 +91,7 @@ impl Host {
             top_level: self.has(FeatureName::TopLevelWindows),
             title_bar,
             title_bar_height: descriptor.title_bar_height,
+            icon: icon.clone(),
         };
 
         // The window has its handle before the window system hears of it:
@@ -130,6 +132,12 @@ impl Host {
         }
         let _ = window.selector.set(host.surface_selector());
         *lock(&window.host) = Some(host);
+        // An icon set on another thread while the window was being made
+        // found no window system's side to tell.
+        let now = lock(&state.icon).clone();
+        if !super::icon::same(&now, &icon) {
+            super::icon::show_on(&state, &[window], now);
+        }
         Ok(handle)
     }
 

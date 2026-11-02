@@ -62,6 +62,7 @@ export const FeatureName = Object.freeze({
   TitleBarOverlay: 0x21,
   TitleBarCustom: 0x22,
   DragRegions: 0x23,
+  AppIcon: 0x24,
 });
 
 export const HostKind = Object.freeze({
@@ -233,6 +234,11 @@ export const PixelAlpha = Object.freeze({
   Opaque: 0x1,
   Premultiplied: 0x2,
   Straight: 0x3,
+});
+
+export const IconFormat = Object.freeze({
+  Rgba8: 0x1,
+  Png: 0x2,
 });
 
 export const EventType = Object.freeze({
@@ -466,6 +472,17 @@ export const InputDevices = Object.freeze({
   Mouse: 0x2,
   Touch: 0x4,
   Pen: 0x8,
+});
+
+// 32 bits
+export const Platforms = Object.freeze({
+  None: 0x0,
+  Macos: 0x1,
+  Ios: 0x2,
+  Windows: 0x4,
+  Linux: 0x8,
+  Android: 0x10,
+  Browser: 0x20,
 });
 
 // KeyboardEvent.code -> WGUIPhysicalKey

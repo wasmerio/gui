@@ -56,6 +56,10 @@ pub struct ScriptOptions {
     pub theme: Option<String>,
     /// `"control"` or `"super"`.
     pub shortcut: Option<String>,
+    /// The platform the system stands in for, for the versions of a guest's
+    /// icon it keeps: `"macos"`, `"ios"`, `"windows"`, `"linux"`,
+    /// `"android"` or `"browser"`. None in particular by default.
+    pub platform: Option<String>,
     pub clipboard_sync: Option<bool>,
     /// `"deny"`, `"paste"` (the default) or `"allow"`.
     pub clipboard_read: Option<String>,
@@ -218,6 +222,16 @@ impl Script {
                 None | Some("control") => modifiers::CONTROL,
                 Some("super") => modifiers::SUPER,
                 Some(other) => bail!("unknown shortcut modifier `{other}`"),
+            },
+            platform: match options.platform.as_deref() {
+                None => default.platform,
+                Some("macos") => platforms::MACOS,
+                Some("ios") => platforms::IOS,
+                Some("windows") => platforms::WINDOWS,
+                Some("linux") => platforms::LINUX,
+                Some("android") => platforms::ANDROID,
+                Some("browser") => platforms::BROWSER,
+                Some(other) => bail!("unknown platform `{other}`"),
             },
             clipboard_sync: options.clipboard_sync.unwrap_or(default.clipboard_sync),
             clock: HeadlessClock::Manual,

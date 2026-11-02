@@ -124,3 +124,18 @@ wasmer run --experimental-gui integrations/sdl3/imgui/out/imgui_demo.wasm
 
 Check the first rows of sections 1, 2 and 5 again, and that closing the
 window ends the command.
+
+## 7. The program's icon
+
+```bash
+./target/debug/gui_wasmer --window tests/programs/out/icon.wasm
+```
+
+The program offers its icon in two versions: an orange rounded square with
+a white ring for every platform, and a blue one inset within a margin for
+macOS. On macOS the Dock and the app switcher (Command-Tab) show the blue
+one; on Windows the title bar, the task bar and Alt-Tab show the orange one,
+sharp at the display's scale; on X11 the task bar and the window switcher
+show the orange one. Closing the window prints `none: Success`; on macOS
+the Dock shows the icon it showed before the program ran, and on Windows and
+X11 the default icon is back for the moment before the program ends.

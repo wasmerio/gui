@@ -49,8 +49,8 @@ static inline const char* wguiSTypeName(WGUISType value) {
 }
 
 /**
- * The name of a WGUIFeatureName without its prefix ("DragRegions"), or NULL for a value this
- * header does not know.
+ * The name of a WGUIFeatureName without its prefix ("AppIcon"), or NULL for a value this header
+ * does not know.
  */
 static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
     switch ((uint32_t)value) {
@@ -89,6 +89,7 @@ static inline const char* wguiFeatureNameName(WGUIFeatureName value) {
         case 0x00000021: return "TitleBarOverlay";
         case 0x00000022: return "TitleBarCustom";
         case 0x00000023: return "DragRegions";
+        case 0x00000024: return "AppIcon";
         default: return NULL;
     }
 }
@@ -400,6 +401,18 @@ static inline const char* wguiPixelAlphaName(WGUIPixelAlpha value) {
         case 0x00000001: return "Opaque";
         case 0x00000002: return "Premultiplied";
         case 0x00000003: return "Straight";
+        default: return NULL;
+    }
+}
+
+/**
+ * The name of a WGUIIconFormat without its prefix ("Png"), or NULL for a value this header does
+ * not know.
+ */
+static inline const char* wguiIconFormatName(WGUIIconFormat value) {
+    switch ((uint32_t)value) {
+        case 0x00000001: return "Rgba8";
+        case 0x00000002: return "Png";
         default: return NULL;
     }
 }
@@ -1124,6 +1137,12 @@ WGUI_FLAG_NAMES(InputDevices, 4, "Keyboard", "Mouse", "Touch", "Pen")
 static inline WGUIInputDevices wguiInputDevicesValue(size_t index) {
     static const WGUIInputDevices values[] = {0x00000001, 0x00000002, 0x00000004, 0x00000008};
     return index < 4 ? values[index] : 0;
+}
+
+WGUI_FLAG_NAMES(Platforms, 6, "Macos", "Ios", "Windows", "Linux", "Android", "Browser")
+static inline WGUIPlatforms wguiPlatformsValue(size_t index) {
+    static const WGUIPlatforms values[] = {0x00000001, 0x00000002, 0x00000004, 0x00000008, 0x00000010, 0x00000020};
+    return index < 6 ? values[index] : 0;
 }
 
 #endif // WASMER_GUI_NAMES_H_

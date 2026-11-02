@@ -54,6 +54,9 @@ Under construction. What works today:
 - the browser, where a window is a canvas of the page (feature `js`): the
   keyboard, pointers, the wheel, text entry with input methods, the
   clipboard, fullscreen and the cursor lock;
+- the program's icon, in versions for each platform it names: in the Dock
+  on macOS, on the windows and the task bar on Windows and X11, and as the
+  page's icon where the page lets it;
 - `SandboxBuilder::gui` and `gui::run_main` in the Wasmer SDK for Rust,
   `sandboxes.create({ gui })` in the one for JavaScript, and
   `wasmer run --experimental-gui` as a patch for the Wasmer CLI

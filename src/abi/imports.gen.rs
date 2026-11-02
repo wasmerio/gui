@@ -24,6 +24,7 @@ pub static IMPORTS: &[ImportSig] = &[
     ImportSig { name: "wguiInstanceReadClipboard", params: &[I32, I32, I32, I32, I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstanceRequestClipboard", params: &[I32, I32, I32, I32, I64], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstanceWriteClipboard", params: &[I32, I32, I32, I32, I64], results: &[I32], blocking: false },
+    ImportSig { name: "wguiInstanceSetIcon", params: &[I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiDisplayGetInfo", params: &[I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiDisplayGetName", params: &[I32, I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiWindowDestroy", params: &[I32], results: &[], blocking: false },

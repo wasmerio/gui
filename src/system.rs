@@ -20,8 +20,8 @@ pub use crate::abi::enums::{
     WheelPhase, WheelUnit,
 };
 pub use crate::abi::enums::{
-    clipboard_flags, default_actions, input_devices, key, modifiers, text_input_hints, wheel_flags,
-    window_flags,
+    clipboard_flags, default_actions, input_devices, key, modifiers, platforms, text_input_hints,
+    wheel_flags, window_flags,
 };
 pub use crate::abi::structs::Rect;
 pub use crate::host::request::PendingRequest;
@@ -44,6 +44,30 @@ pub struct SystemInfo {
     pub theme: Theme,
     /// The largest edge of a custom cursor, in pixels. 0 if unknown.
     pub max_cursor_size: u32,
+    /// The platform it is, as one of the [`platforms`] bits: what decides
+    /// which versions of a guest's icon it is given. 0 is none in
+    /// particular, which is given the versions made for every platform.
+    pub platform: u32,
+}
+
+/// The current target's bit of [`platforms`], for a window system that runs
+/// on it: 0 where there is none.
+pub const fn native_platform() -> u32 {
+    if cfg!(target_os = "macos") {
+        platforms::MACOS
+    } else if cfg!(target_os = "ios") {
+        platforms::IOS
+    } else if cfg!(target_os = "windows") {
+        platforms::WINDOWS
+    } else if cfg!(target_os = "android") {
+        platforms::ANDROID
+    } else if cfg!(target_family = "wasm") {
+        0
+    } else if cfg!(unix) {
+        platforms::LINUX
+    } else {
+        0
+    }
 }
 
 /// A screen.
@@ -94,6 +118,41 @@ pub struct WindowAttributes {
     /// How tall the guest draws its title bar, in the units of the sizes
     /// (`logical_units`). 0: the window system's usual height.
     pub title_bar_height: u32,
+    /// The guest's icon, if it set one (`wguiInstanceSetIcon`) before it
+    /// opened the window. Later ones come as [`WindowChange::Icon`].
+    pub icon: Option<std::sync::Arc<Icon>>,
+}
+
+/// A guest's icon (`wguiInstanceSetIcon`): the versions of it made for the
+/// window system's platform ([`SystemInfo::platform`]), or those for every
+/// platform. The host has checked and decoded them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Icon {
+    /// The same picture at different sizes, the largest first. One at
+    /// least, from the host.
+    pub images: Vec<IconImage>,
+}
+
+impl Icon {
+    /// The image to show where the icon is drawn `edge` pixels wide: the
+    /// smallest that is at least that big, or else the largest. The window
+    /// system scales it to fit.
+    pub fn image_for(&self, edge: u32) -> Option<&IconImage> {
+        self.images
+            .iter()
+            .rev()
+            .find(|image| image.width >= edge)
+            .or(self.images.first())
+    }
+}
+
+/// One image of a guest's icon: square, RGBA, 8 bits each, straight alpha,
+/// rows from the top, no padding.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IconImage {
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
 }
 
 /// A custom cursor: RGBA, 8 bits each, straight alpha, rows from the top.
@@ -267,6 +326,10 @@ pub enum WindowChange {
     /// window system's, not the guest's. Only for a system that has
     /// [`FeatureName::DragRegions`].
     DragRegions(Vec<Rect>),
+    /// The guest's icon changed, or it has none any more (`None`): show the
+    /// window system's or the embedder's again. Only for a system that has
+    /// [`FeatureName::AppIcon`].
+    Icon(Option<std::sync::Arc<Icon>>),
 }
 
 /// A window of the window system. Dropping it destroys the window.
@@ -402,6 +465,7 @@ impl WindowSystem for NoWindows {
             input_devices: 0,
             theme: Theme::Unknown,
             max_cursor_size: 0,
+            platform: 0,
         }
     }
 

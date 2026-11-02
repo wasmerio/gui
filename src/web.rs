@@ -36,6 +36,8 @@ extern "C" {
     fn destroy_window(this: &GuiPage, view: f64);
     #[wasm_bindgen(method, js_name = setTitle)]
     fn set_title(this: &GuiPage, view: f64, title: &str);
+    #[wasm_bindgen(method, js_name = setIcon)]
+    fn set_icon(this: &GuiPage, view: f64, images: &JsValue);
     #[wasm_bindgen(method, js_name = setSize)]
     fn set_size(this: &GuiPage, view: f64, width: u32, height: u32);
     #[wasm_bindgen(method, js_name = setCursorShape)]
@@ -245,14 +247,15 @@ fn instances(scope: u32) -> Vec<InstanceSink> {
     .unwrap_or_default()
 }
 
-/// What the page can do, as guests are told.
-fn info() -> SystemInfo {
+/// What the page can do, as guests are told. `icon`: the embedder takes the
+/// guest's icon (the `icon` option of `createGuiPage`).
+fn info(icon: bool) -> SystemInfo {
     use FeatureName::*;
     SystemInfo {
         host_kind: HostKind::Browser,
         // No windows of the guest's own, no positions, no window states: a
         // canvas is where the page put it. No cursor confinement or warping.
-        features: vec![
+        features: [
             Windows,
             FullscreenBorderless,
             Displays,
@@ -268,7 +271,10 @@ fn info() -> SystemInfo {
             Theme,
             PixelPresent,
             RedrawReasons,
-        ],
+        ]
+        .into_iter()
+        .chain(icon.then_some(AppIcon))
+        .collect(),
         shortcut_modifier: if shortcut_is_command() {
             modifiers::SUPER
         } else {
@@ -277,7 +283,25 @@ fn info() -> SystemInfo {
         input_devices: input_devices_of_the_page(),
         theme: crate::system::Theme::Unknown,
         max_cursor_size: 128,
+        platform: platforms::BROWSER,
     }
+}
+
+/// An icon as the page half takes it: `{ rgba, width, height }` for each
+/// image, the largest first; none for no icon.
+fn icon_images(icon: Option<&Icon>) -> JsValue {
+    let images = js_sys::Array::new();
+    for image in icon.map_or(&[][..], |icon| &icon.images[..]) {
+        let object = Object::new();
+        let set = |name: &str, value: &JsValue| {
+            let _ = Reflect::set(&object, &JsValue::from_str(name), value);
+        };
+        set("rgba", &Uint8Array::from(&image.rgba[..]));
+        set("width", &JsValue::from(image.width));
+        set("height", &JsValue::from(image.height));
+        images.push(&object);
+    }
+    images.into()
 }
 
 /// Makes the window system of one sandbox, whose windows are canvases of
@@ -308,7 +332,7 @@ pub fn open(scope: u32, options: &JsValue) -> Result<ViewSystem, JsValue> {
 
     let views = ViewSystem::new(
         ViewOptions {
-            info: info(),
+            info: info(field(options, "icon").is_function()),
             ..ViewOptions::default()
         },
         move || notify(scope),
@@ -399,6 +423,7 @@ fn carry_out(scope: u32, command: ViewCommand) {
             };
             set("target", JsValue::from_str(&attributes.target));
             set("title", JsValue::from_str(&attributes.title));
+            set("icon", icon_images(attributes.icon.as_deref()));
             let (width, height) = attributes.size.unwrap_or((0, 0));
             set("width", JsValue::from(width));
             set("height", JsValue::from(height));
@@ -502,6 +527,7 @@ fn change_view(scope: u32, js: &GuiPage, view: ViewId, change: WindowChange) {
     let id = view as f64;
     match change {
         WindowChange::Title(title) => js.set_title(id, &title),
+        WindowChange::Icon(icon) => js.set_icon(id, &icon_images(icon.as_deref())),
         WindowChange::Size { width, height } => js.set_size(id, width, height),
         WindowChange::Fullscreen { options, request } => {
             let wait = options.as_ref().is_none_or(|options| !options.no_deferral);

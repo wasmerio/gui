@@ -11,6 +11,7 @@ mod clipboard;
 mod cursor;
 mod display;
 mod global;
+mod icon;
 mod instance;
 pub(crate) mod request;
 pub(crate) mod shared;
@@ -35,8 +36,10 @@ use crate::abi::enums::FeatureName;
 use crate::abi::{AbiError, AbiResult, Cx, GuestMemory, Handle, ImportResult};
 use crate::ctx::{ClipboardRead, CtxInner};
 use crate::env::GuiEnv;
-use crate::system::{CursorImage, HostWindow, WindowChange};
+use crate::system::{CursorImage, HostWindow, Icon, WindowChange};
 
+#[cfg(feature = "winit")]
+pub(crate) use icon::same as same_icon;
 pub(crate) use table::{Object, ObjectKind};
 
 use shared::{InstanceShared, WindowShared};
@@ -95,6 +98,9 @@ pub(crate) fn log(_message: impl FnOnce() -> String) {}
 pub(crate) struct Instance {
     pub(crate) shared: Arc<InstanceShared>,
     pub(crate) application_id: String,
+    /// The icon the guest set (`wguiInstanceSetIcon`), for the windows it
+    /// opens next.
+    pub(crate) icon: Mutex<Option<Arc<Icon>>>,
 }
 
 /// `WGUIWindow`.
@@ -235,6 +241,7 @@ impl Host {
                 ClipboardText | ClipboardData | PrimarySelection => clipboard,
                 ClipboardSyncRead => policy.clipboard_read != ClipboardRead::Deny,
                 AttentionRequest => policy.attention,
+                AppIcon => policy.app_icon,
                 _ => true,
             })
             .collect()

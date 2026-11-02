@@ -98,6 +98,8 @@ struct Entry {
     pointer_inside: bool,
     /// The cursor the guest asked for, shown again off the edges.
     guest_cursor: winit::window::Cursor,
+    /// The guest's icon, for showing again at another scale.
+    icon: Option<Arc<Icon>>,
 }
 
 impl Entry {
@@ -379,6 +381,11 @@ pub(super) struct App {
     /// Shows the frames guests draw themselves, from the first one on.
     #[cfg(feature = "pixels")]
     painter: Option<super::pixels::Painter>,
+    /// The windows that have the guest's icon, in the order they were given
+    /// it, and the application's icon (macOS: icon.rs), which puts the one
+    /// from before back when this is dropped.
+    icon_order: Vec<WindowKey>,
+    app_icon: super::icon::AppIcon,
 }
 
 impl App {
@@ -407,6 +414,8 @@ impl App {
             redraw_waker,
             #[cfg(feature = "pixels")]
             painter: None,
+            icon_order: Vec::new(),
+            app_icon: super::icon::AppIcon::new(),
         }
     }
 
@@ -588,6 +597,7 @@ impl App {
             resize_edge: None,
             pointer_inside: false,
             guest_cursor: winit::window::CursorIcon::Default.into(),
+            icon: None,
         };
         // Everything the guest can ask about first, then the size, which is
         // what tells it the window is there.
@@ -596,6 +606,9 @@ impl App {
         entry.resized(size.width, size.height, scale_factor);
         self.windows.insert(id, entry);
         self.keys.insert(key, id);
+        if attributes.icon.is_some() {
+            self.set_icon(key, attributes.icon);
+        }
         Ok(Created { key, selector })
     }
 
@@ -610,10 +623,48 @@ impl App {
                 entry.window.set_visible(false);
             }
             // Otherwise it is dropped here, on the thread that made it.
+            if entry.icon.is_some() {
+                self.icon_order.retain(|known| *known != key);
+                self.show_app_icon();
+            }
         }
     }
 
+    /// Gives a window the guest's icon, or takes it away.
+    fn set_icon(&mut self, key: WindowKey, icon: Option<Arc<Icon>>) {
+        let Some(entry) = self.entry(key) else {
+            return;
+        };
+        super::icon::show(&entry.window, icon.as_deref());
+        let given = icon.is_some();
+        entry.icon = icon;
+        self.icon_order.retain(|known| *known != key);
+        if given {
+            self.icon_order.push(key);
+        }
+        self.show_app_icon();
+    }
+
+    /// Where the process has one icon: shows the one given last to a window
+    /// that is still open, or the one the application had before.
+    fn show_app_icon(&mut self) {
+        if !super::icon::ONE_FOR_THE_PROCESS {
+            return;
+        }
+        let wanted = self
+            .icon_order
+            .last()
+            .and_then(|key| self.keys.get(key))
+            .and_then(|id| self.windows.get(id))
+            .and_then(|entry| entry.icon.clone());
+        self.app_icon.show(wanted);
+    }
+
     fn change(&mut self, event_loop: &ActiveEventLoop, key: WindowKey, change: WindowChange) {
+        let change = match change {
+            WindowChange::Icon(icon) => return self.set_icon(key, icon),
+            change => change,
+        };
         let monitor_for = |app: &App, display: Option<u64>| display.and_then(|id| app.monitor(id));
         // Fullscreen names a display, which is the loop's to resolve.
         let fullscreen_monitor = match &change {
@@ -813,6 +864,8 @@ impl App {
             // can show them at all.
             WindowChange::Pixels(_) => {}
             WindowChange::DragRegions(regions) => entry.drag_regions = regions,
+            // Taken above: it may change the application's icon.
+            WindowChange::Icon(_) => {}
         }
     }
 
@@ -970,6 +1023,9 @@ impl ApplicationHandler<()> for App {
                 let size = entry.window.inner_size();
                 entry.resized(size.width, size.height, scale_factor);
                 entry.report_title_bar();
+                if super::icon::FOLLOWS_SCALE && entry.icon.is_some() {
+                    super::icon::show(&entry.window, entry.icon.as_deref());
+                }
             }
             WindowEvent::Moved(_) => {
                 entry.report_place();

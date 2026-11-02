@@ -28,6 +28,7 @@ mod app;
 #[cfg(feature = "clipboard")]
 mod clipboard;
 mod convert;
+mod icon;
 #[rustfmt::skip]
 mod keys;
 #[cfg(feature = "pixels")]
@@ -465,6 +466,10 @@ impl WindowSystem for WinitSystem {
         if mac {
             features.push(TitleBarOverlay);
         }
+        // The program's icon (icon.rs): winit sets none on Wayland.
+        if !wayland {
+            features.push(AppIcon);
+        }
         SystemInfo {
             host_kind: HostKind::Desktop,
             features,
@@ -476,6 +481,7 @@ impl WindowSystem for WinitSystem {
             input_devices: input_devices::KEYBOARD | input_devices::MOUSE,
             theme: crate::system::Theme::Unknown,
             max_cursor_size: 0,
+            platform: native_platform(),
         }
     }
 

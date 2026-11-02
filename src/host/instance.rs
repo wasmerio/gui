@@ -383,4 +383,13 @@ impl InstanceApi for Host {
     ) -> AbiResult<Status> {
         self.clipboard_write(cx, instance, selection, items, tag)
     }
+
+    fn instance_set_icon(
+        &self,
+        cx: &mut Cx<'_>,
+        instance: Handle,
+        images: &[IconImage],
+    ) -> AbiResult<Status> {
+        self.set_icon(cx, instance, images)
+    }
 }

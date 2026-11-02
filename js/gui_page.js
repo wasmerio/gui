@@ -115,6 +115,55 @@ const INPUT_MODES = new Map([
 
 const encoder = new TextEncoder();
 
+/**
+ * For each document: the icons it named itself, as they were, and what each
+ * owner wants shown instead, the latest last.
+ */
+const pageIcons = new WeakMap();
+
+/**
+ * Makes `pictures` (what the `icon` option of `createGuiPage` is handed) the
+ * icon of `document`'s page in place of the icons it names itself, on behalf
+ * of `owner` (the canvas the option is handed, say). The page shows what the
+ * owner that asked last wants; none takes that owner's back, and with no
+ * owner left the page's own icons are back as they were. For an embedder
+ * whose page is the program's:
+ *
+ *     createGuiPage(core, { icon: (pictures, canvas) => setPageIcon(document, pictures, canvas) })
+ */
+export function setPageIcon(document, pictures, owner = null) {
+  const head = document?.head;
+  if (!head) return;
+  let state = pageIcons.get(document);
+  if (!state) {
+    // The page's own are kept where they are, without the relation that
+    // makes them icons.
+    const own = [...head.querySelectorAll('link[rel~="icon"]')].map((link) => [link, link.rel]);
+    state = { own, wanted: new Map(), links: [] };
+    pageIcons.set(document, state);
+  }
+  state.wanted.delete(owner);
+  if (pictures && pictures.length > 0) state.wanted.set(owner, pictures);
+  for (const link of state.links) link.remove();
+  state.links = [];
+  const shown = [...state.wanted.values()].at(-1);
+  if (!shown) {
+    for (const [link, rel] of state.own) link.rel = rel;
+    pageIcons.delete(document);
+    return;
+  }
+  for (const [link] of state.own) link.rel = "";
+  for (const picture of shown) {
+    const link = document.createElement("link");
+    link.rel = "icon";
+    link.type = "image/png";
+    link.setAttribute("sizes", `${picture.width}x${picture.height}`);
+    link.href = picture.href;
+    head.append(link);
+    state.links.push(link);
+  }
+}
+
 /** Length of `text` in UTF-8, the unit the core counts text in. */
 function utf8Length(text) {
   return encoder.encode(text).length;
@@ -296,6 +345,9 @@ class GuiPage {
     if (typeof request.title === "string" && request.title !== "") {
       this.setTitle(id, request.title);
     }
+    if (Array.isArray(request.icon) && request.icon.length > 0) {
+      this.setIcon(id, request.icon);
+    }
     if (request.width > 0 && request.height > 0 && this.options.resizable !== false) {
       // A size was asked for. It is the page's layout that decides; this is
       // what the canvas would like to be.
@@ -358,6 +410,14 @@ class GuiPage {
     } catch (error) {
       console.warn("[wasmer-gui] the title handler failed:", error);
     }
+    if (view.hasIcon) {
+      try {
+        // And its icon.
+        this.options.icon?.([], canvas);
+      } catch (error) {
+        console.warn("[wasmer-gui] the icon handler failed:", error);
+      }
+    }
   }
 
   setTitle(id, title) {
@@ -371,6 +431,42 @@ class GuiPage {
     } catch (error) {
       console.warn("[wasmer-gui] the title handler failed:", error);
     }
+  }
+
+  /**
+   * The program's icon, which the window `id` shows: `images` are
+   * `{ rgba, width, height }`, the largest first (`rgba` straight, rows from
+   * the top), and none when it has no icon any more. The page decides what
+   * to do with it: the `icon` option is handed it as pictures,
+   * `{ width, height, href }`, with the canvas, and may make them the page's
+   * icon (`setPageIcon`).
+   */
+  setIcon(id, images) {
+    const view = this.views.get(id);
+    if (!view || typeof this.options.icon !== "function") return;
+    let pictures = [];
+    try {
+      pictures = images.map((image) => this.picture(image));
+    } catch (error) {
+      console.warn("[wasmer-gui] the icon could not be drawn:", error);
+      return;
+    }
+    view.hasIcon = pictures.length > 0;
+    try {
+      this.options.icon(pictures, view.canvas);
+    } catch (error) {
+      console.warn("[wasmer-gui] the icon handler failed:", error);
+    }
+  }
+
+  /** An image of an icon as a PNG file a link can point to. */
+  picture({ rgba, width, height }) {
+    const canvas = this.document.createElement("canvas");
+    canvas.width = width;
+    canvas.height = height;
+    const pixels = new ImageData(new Uint8ClampedArray(rgba), width, height);
+    canvas.getContext("2d").putImageData(pixels, 0, 0);
+    return { width, height, href: canvas.toDataURL("image/png") };
   }
 
   /** The guest would like the window this big, in physical pixels. */
@@ -1487,6 +1583,11 @@ function randomName() {
  *   name its window gives out for drawing, and forgets it again.
  * - `title(title, canvas)`: a window was given a title, or (with `""`) the
  *   canvas is no longer a window.
+ * - `icon(pictures, canvas)`: the program's icon, which the window shows, as
+ *   `{ width, height, href }` PNG pictures, the largest first; none when it
+ *   has no icon any more or the canvas is no longer a window. Guests are
+ *   offered `WGUIFeatureName_AppIcon` only with this option. `setPageIcon`
+ *   makes the pictures the page's icon.
  * - `resizable`: `false` keeps guests from asking the canvas to be another
  *   size; the page's layout alone decides.
  * - `manageCanvasSize`: `false` leaves `canvas.width` and `height` alone.

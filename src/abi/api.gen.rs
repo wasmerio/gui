@@ -56,6 +56,8 @@ pub trait InstanceApi {
     fn instance_request_clipboard(&self, cx: &mut Cx<'_>, instance: Handle, selection: ClipboardSelection, mime_type: &str, tag: u64) -> AbiResult<Status>;
     /// `wguiInstanceWriteClipboard`
     fn instance_write_clipboard(&self, cx: &mut Cx<'_>, instance: Handle, selection: ClipboardSelection, items: &[ClipboardItem], tag: u64) -> AbiResult<Status>;
+    /// `wguiInstanceSetIcon`
+    fn instance_set_icon(&self, cx: &mut Cx<'_>, instance: Handle, images: &[IconImage]) -> AbiResult<Status>;
 }
 
 /// The `WGUIDisplay` functions of `gui.h`.
@@ -301,6 +303,13 @@ fn import_instance_write_clipboard(mut env: FunctionEnvMut<'_, GuiEnv>, instance
     })
 }
 
+fn import_instance_set_icon(mut env: FunctionEnvMut<'_, GuiEnv>, instance: u32, image_count: u32, images: u32) -> Result<u32, RuntimeError> {
+    enter(&mut env, "wguiInstanceSetIcon", |host, cx| {
+        let images = cx.mem.read_array::<IconImage>(images, image_count)?;
+        host.instance_set_icon(cx, instance, &images)
+    })
+}
+
 fn import_display_get_info(mut env: FunctionEnvMut<'_, GuiEnv>, display: u32, info: u32) -> Result<u32, RuntimeError> {
     enter(&mut env, "wguiDisplayGetInfo", |host, cx| {
         if info == 0 {
@@ -493,6 +502,7 @@ pub(crate) fn register(store: &mut impl AsStoreMut, env: &FunctionEnv<GuiEnv>, e
     exports.insert("wguiInstanceReadClipboard", Function::new_typed_with_env(store, env, import_instance_read_clipboard));
     exports.insert("wguiInstanceRequestClipboard", Function::new_typed_with_env(store, env, import_instance_request_clipboard));
     exports.insert("wguiInstanceWriteClipboard", Function::new_typed_with_env(store, env, import_instance_write_clipboard));
+    exports.insert("wguiInstanceSetIcon", Function::new_typed_with_env(store, env, import_instance_set_icon));
     exports.insert("wguiDisplayGetInfo", Function::new_typed_with_env(store, env, import_display_get_info));
     exports.insert("wguiDisplayGetName", Function::new_typed_with_env(store, env, import_display_get_name));
     exports.insert("wguiWindowDestroy", Function::new_typed_with_env(store, env, import_window_destroy));
@@ -589,31 +599,32 @@ fn call(index: usize, env: FunctionEnvMut<'_, GuiEnv>, args: &[wasmer::Value]) -
         15 => value(import_instance_read_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4] as u32, raw[5] as u32, raw[6] as u32)),
         16 => value(import_instance_request_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
         17 => value(import_instance_write_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
-        18 => value(import_display_get_info(env, raw[0] as u32, raw[1] as u32)),
-        19 => value(import_display_get_name(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        20 => nothing(import_window_destroy(env, raw[0] as u32)),
-        21 => value(import_window_get_state(env, raw[0] as u32, raw[1] as u32)),
-        22 => value(import_window_get_surface_selector(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        23 => value(import_window_set_title(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        24 => value(import_window_set_size(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        25 => value(import_window_set_size_limits(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4] as u32)),
-        26 => value(import_window_set_position(env, raw[0] as u32, raw[1] as u32 as i32, raw[2] as u32 as i32)),
-        27 => value(import_window_set_flags(env, raw[0] as u32, raw[1], raw[2], raw[3] as u32)),
-        28 => value(import_window_set_fullscreen(env, raw[0] as u32, raw[1] as u32, raw[2])),
-        29 => value(import_window_set_drag_regions(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        30 => value(import_window_focus(env, raw[0] as u32)),
-        31 => value(import_window_request_attention(env, raw[0] as u32, raw[1] as u32)),
-        32 => value(import_window_request_redraw(env, raw[0] as u32)),
-        33 => value(import_window_set_cursor_shape(env, raw[0] as u32, raw[1] as u32)),
-        34 => value(import_window_set_custom_cursor(env, raw[0] as u32, raw[1] as u32)),
-        35 => value(import_window_set_cursor_visible(env, raw[0] as u32, raw[1] as u32)),
-        36 => value(import_window_set_cursor_grab(env, raw[0] as u32, raw[1] as u32, raw[2])),
-        37 => value(import_window_set_cursor_position(env, raw[0] as u32, f64::from_bits(raw[1]), f64::from_bits(raw[2]))),
-        38 => value(import_window_set_text_input(env, raw[0] as u32, raw[1] as u32)),
-        39 => value(import_window_reset_text_input(env, raw[0] as u32)),
-        40 => value(import_window_set_default_actions(env, raw[0] as u32, raw[1] as u32)),
-        41 => value(import_window_present_pixels(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        42 => nothing(import_cursor_destroy(env, raw[0] as u32)),
+        18 => value(import_instance_set_icon(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        19 => value(import_display_get_info(env, raw[0] as u32, raw[1] as u32)),
+        20 => value(import_display_get_name(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        21 => nothing(import_window_destroy(env, raw[0] as u32)),
+        22 => value(import_window_get_state(env, raw[0] as u32, raw[1] as u32)),
+        23 => value(import_window_get_surface_selector(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        24 => value(import_window_set_title(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        25 => value(import_window_set_size(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        26 => value(import_window_set_size_limits(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4] as u32)),
+        27 => value(import_window_set_position(env, raw[0] as u32, raw[1] as u32 as i32, raw[2] as u32 as i32)),
+        28 => value(import_window_set_flags(env, raw[0] as u32, raw[1], raw[2], raw[3] as u32)),
+        29 => value(import_window_set_fullscreen(env, raw[0] as u32, raw[1] as u32, raw[2])),
+        30 => value(import_window_set_drag_regions(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        31 => value(import_window_focus(env, raw[0] as u32)),
+        32 => value(import_window_request_attention(env, raw[0] as u32, raw[1] as u32)),
+        33 => value(import_window_request_redraw(env, raw[0] as u32)),
+        34 => value(import_window_set_cursor_shape(env, raw[0] as u32, raw[1] as u32)),
+        35 => value(import_window_set_custom_cursor(env, raw[0] as u32, raw[1] as u32)),
+        36 => value(import_window_set_cursor_visible(env, raw[0] as u32, raw[1] as u32)),
+        37 => value(import_window_set_cursor_grab(env, raw[0] as u32, raw[1] as u32, raw[2])),
+        38 => value(import_window_set_cursor_position(env, raw[0] as u32, f64::from_bits(raw[1]), f64::from_bits(raw[2]))),
+        39 => value(import_window_set_text_input(env, raw[0] as u32, raw[1] as u32)),
+        40 => value(import_window_reset_text_input(env, raw[0] as u32)),
+        41 => value(import_window_set_default_actions(env, raw[0] as u32, raw[1] as u32)),
+        42 => value(import_window_present_pixels(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        43 => nothing(import_cursor_destroy(env, raw[0] as u32)),
         _ => Err(RuntimeError::new("no such import")),
     }
 }

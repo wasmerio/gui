@@ -151,6 +151,14 @@
             { "name": "items", "type": "array<struct.clipboard_item>", "pointer": "immutable" },
             { "name": "tag", "type": "uint64" }
           ]
+        },
+        {
+          "name": "set_icon",
+          "doc": "Sets the program's icon: what the system shows for the program outside its windows' content. On macOS that is the Dock and the app switcher; on Windows and X11, the title bars of its windows, the task bar and the window switcher; in a browser, the page's icon, where the embedder lets a program set it. It holds for the instance's windows, those open and those opened later.\n\n`images` are the icon at several sizes, and in versions made for particular platforms, which differ in more than their size: a macOS icon leaves a margin around its shape for the shadow it casts, an iOS one fills its whole square and the system rounds the corners. The host keeps the images made for its platform, or, if none is, those made for every platform (`platforms` 0). Wherever it shows the icon it takes the smallest of them that is at least as large as the icon is drawn there, or else the largest, and scales it. Images made for other platforms are still checked.\n\nNo images (`imageCount` 0) take the program's icon away: the one the system or the embedder gives it comes back. On macOS, where the process has one icon, the Dock shows the one given last to a window that is still open. WGUIStatus_NotFound: no image is for this platform; the icon did not change. WGUIStatus_LimitExceeded: more than 32 images, an edge longer than 1024 pixels, or more than 16 MiB kept, of files or of pixels. Needs WGUIFeatureName_AppIcon.",
+          "returns": "status",
+          "args": [
+            { "name": "images", "type": "array<struct.icon_image>", "pointer": "immutable" }
+          ]
         }
       ]
     },
@@ -456,7 +464,8 @@
         { "name": "redraw_reasons", "doc": "WindowRedrawRequested says why it came: WGUIEventFlags_FrameCallback when it answers wguiWindowRequestRedraw, WGUIEventFlags_Exposure when the window has to be shown whole again. Without this feature, take every redraw as an exposure." },
         { "name": "title_bar_overlay", "doc": "WGUITitleBarStyle_Overlay: the content area takes the title bar too, and the system's window controls stay, over it." },
         { "name": "title_bar_custom", "doc": "WGUITitleBarStyle_Custom: no title bar or window controls of the system's; the program draws its own." },
-        { "name": "drag_regions", "doc": "wguiWindowSetDragRegions: parts of the content area that move the window, as a title bar does." }
+        { "name": "drag_regions", "doc": "wguiWindowSetDragRegions: parts of the content area that move the window, as a title bar does." },
+        { "name": "app_icon", "doc": "wguiInstanceSetIcon: the system shows the program's icon." }
       ]
     },
     {
@@ -696,6 +705,15 @@
         { "name": "opaque", "doc": "Nothing: every pixel covers what is behind the window, whatever the byte holds." },
         { "name": "premultiplied", "doc": "How much the pixel covers, with the colours already multiplied by it. Shows through only in a window made with WGUIWindowFlags_Transparent, on hosts that have such windows." },
         { "name": "straight", "doc": "How much the pixel covers, with the colours as they are." }
+      ]
+    },
+    {
+      "name": "icon_format",
+      "doc": "How an image of the program's icon is stored (WGUIIconImage). A format added later comes with a WGUIFeatureName of its own: a program offers it where the host has that feature.",
+      "entries": [
+        null,
+        { "name": "rgba8", "doc": "Red, green, blue, alpha, 8 bits each, alpha not premultiplied, rows from the top, no padding: width * height * 4 bytes." },
+        { "name": "png", "doc": "A PNG file, of any colour type and bit depth. The host decodes it; of an animated one it shows the default image." }
       ]
     }
   ],
@@ -947,6 +965,20 @@
         { "name": "touch", "doc": "" },
         { "name": "pen", "doc": "" }
       ]
+    },
+    {
+      "name": "platforms",
+      "width": 32,
+      "doc": "Platforms a program makes something for, such as a version of its icon.",
+      "entries": [
+        { "name": "none", "doc": "" },
+        { "name": "macos", "doc": "" },
+        { "name": "ios", "doc": "iPhone and iPad." },
+        { "name": "windows", "doc": "" },
+        { "name": "linux", "doc": "Linux and the other systems with X11 or Wayland desktops." },
+        { "name": "android", "doc": "" },
+        { "name": "browser", "doc": "A web page." }
+      ]
     }
   ],
 
@@ -1128,6 +1160,19 @@
         { "name": "mime_type", "type": "string", "doc": "\"text/plain\" for UTF-8 text." },
         { "name": "data", "type": "c_void", "pointer": "immutable", "doc": "" },
         { "name": "size", "type": "usize", "doc": "" }
+      ]
+    },
+    {
+      "name": "icon_image",
+      "type": "extensible",
+      "doc": "One image of the program's icon, for wguiInstanceSetIcon.",
+      "members": [
+        { "name": "width", "type": "uint32", "doc": "The image's size in pixels: for a PNG, the size it was saved at. Icons are square: the same as `height`." },
+        { "name": "height", "type": "uint32", "doc": "" },
+        { "name": "format", "type": "enum.icon_format", "doc": "" },
+        { "name": "platforms", "type": "bitflag.platforms", "doc": "The platforms the image is made for. None: every platform, as far as no image is made for it in particular." },
+        { "name": "data", "type": "c_void", "pointer": "immutable", "doc": "The image, stored as `format` says." },
+        { "name": "size", "type": "usize", "doc": "How many bytes `data` holds." }
       ]
     }
   ],
