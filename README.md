@@ -102,6 +102,32 @@ end of a chain. What would break a program built today waits for a
 - **Records say how long they are.** They can grow, and a program steps over
   the kinds it does not know.
 
+## System preferences
+
+Read light/dark appearance from `WGUIInstanceInfo.systemTheme` or the window's
+`WGUIWindowState.theme`; follow `AppThemeChanged` / `WindowThemeChanged` events.
+Native winit windows and browser hosts already provide these values.
+
+`wguiInstanceGetReducedMotion(instance, &preference)` returns
+`WGUIReducedMotion_Unknown`, `NoPreference`, or `Reduce`. Follow
+`AppReducedMotionChanged` and read again after `EventsLost`. `Reduce` corresponds
+to the web's `prefers-reduced-motion: reduce`: applications choose which motion
+to remove or simplify. The host does not globally slow down or stop animations.
+This is an additive API; older hosts return `WGUIStatus_Unimplemented`.
+
+Browser hosts read media queries at startup and subscribe to their changes.
+macOS seeds a cached value from `NSWorkspace.accessibilityDisplayShouldReduceMotion`
+on the main thread and updates it from workspace notifications delivered on the
+main queue. Guest getters only read that cache. Unrelated accessibility changes
+with the same motion value produce no event.
+Other native platforms currently return `Unknown`. Headless hosts can set
+`HeadlessOptions.reduced_motion` and call `HeadlessSystem::set_reduced_motion`;
+the option remains the initial configuration. Custom view embedders update
+`ViewSystem::set_reduced_motion` on their interface's thread and notify instance
+sinks when it returns `true`. These APIs report preferences even before a window
+opens; a macOS system constructed off the main thread starts at `Unknown` until
+the native loop seeds it on the main thread.
+
 ## Embedding
 
 ```rust

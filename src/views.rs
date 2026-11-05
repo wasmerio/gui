@@ -230,6 +230,7 @@ struct Inner {
     next_view: AtomicU64,
     started: Duration,
     theme: AtomicU32,
+    reduced_motion: AtomicU32,
     /// The interface is gone: nothing is queued for it any more.
     closed: AtomicBool,
     /// Small things both sides read and write. Never held while anything
@@ -272,6 +273,7 @@ impl ViewSystem {
                 next_view: AtomicU64::new(1),
                 started: crate::clock::now(),
                 theme: AtomicU32::new(theme as u32),
+                reduced_motion: AtomicU32::new(ReducedMotion::Unknown as u32),
                 closed: AtomicBool::new(false),
                 shared: Mutex::new(Shared::default()),
             }),
@@ -297,6 +299,16 @@ impl ViewSystem {
     /// [`InstanceSink::displays_changed`].
     pub fn set_displays(&self, displays: Vec<DisplayData>) {
         lock(&self.inner.shared).displays = displays;
+    }
+
+    /// Update the motion preference. Returns whether it changed, so the
+    /// interface can notify instance sinks only for a new value. Like other
+    /// view reports, updates and notifications belong on the interface's thread.
+    pub fn set_reduced_motion(&self, preference: ReducedMotion) -> bool {
+        self.inner
+            .reduced_motion
+            .swap(preference as u32, Ordering::AcqRel)
+            != preference as u32
     }
 
     /// The theme the interface is in now. Tell the guests with
@@ -434,6 +446,11 @@ impl WindowSystem for ViewSystem {
         info.theme =
             Theme::from_u32(self.inner.theme.load(Ordering::Acquire)).unwrap_or(Theme::Unknown);
         info
+    }
+
+    fn reduced_motion(&self) -> ReducedMotion {
+        ReducedMotion::from_u32(self.inner.reduced_motion.load(Ordering::Acquire))
+            .unwrap_or(ReducedMotion::Unknown)
     }
 
     fn now(&self) -> u64 {
@@ -588,6 +605,71 @@ mod tests {
     use crate::headless::HeadlessSystem;
     use crate::host::tests::{Rig, completions, copy, key, paste};
     use crate::{GuiLimits, GuiPolicy};
+
+    #[test]
+    fn motion_preferences_round_trip_through_the_view_and_guest_api() {
+        let views = ViewSystem::new(ViewOptions::default(), || {});
+        let rig = Rig::on(
+            Arc::new(views.clone()),
+            HeadlessSystem::default(),
+            GuiPolicy::default(),
+            GuiLimits::default(),
+        );
+        let Some(ViewCommand::Attach(instance)) = views.next_command() else {
+            panic!("the interface receives the guest's sink");
+        };
+        let read = || {
+            assert_eq!(
+                rig.call(|host, cx| host.instance_get_reduced_motion(
+                    cx,
+                    rig.instance,
+                    OutPtr::new(1024)
+                ))
+                .unwrap(),
+                Status::Success
+            );
+            rig.read_u32(1024)
+        };
+        assert_eq!(read(), ReducedMotion::Unknown as u32);
+        for preference in [
+            ReducedMotion::Reduce,
+            ReducedMotion::NoPreference,
+            ReducedMotion::Unknown,
+        ] {
+            assert!(views.set_reduced_motion(preference));
+            assert_eq!(read(), preference as u32);
+            instance.reduced_motion_changed(preference);
+            assert!(
+                matches!(rig.events().as_slice(), [(_, Event::AppReducedMotionChanged(event))]
+                if event.preference == preference)
+            );
+            assert!(!views.set_reduced_motion(preference));
+            assert!(rig.events().is_empty());
+        }
+    }
+
+    #[test]
+    fn only_one_concurrent_view_setter_reports_a_new_value() {
+        let views = ViewSystem::new(ViewOptions::default(), || {});
+        let start = Arc::new(std::sync::Barrier::new(8));
+        let setters: Vec<_> = (0..8)
+            .map(|_| {
+                let views = views.clone();
+                let start = start.clone();
+                std::thread::spawn(move || {
+                    start.wait();
+                    views.set_reduced_motion(ReducedMotion::Reduce)
+                })
+            })
+            .collect();
+        let changed = setters
+            .into_iter()
+            .map(|thread| thread.join().unwrap())
+            .filter(|changed| *changed)
+            .count();
+        assert_eq!(changed, 1);
+        assert_eq!(views.reduced_motion(), ReducedMotion::Reduce);
+    }
 
     /// How the interface answers a guest that wants a window.
     #[derive(Clone, Copy)]

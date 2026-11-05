@@ -3034,3 +3034,150 @@ fn an_embedder_can_keep_the_icon_its_own() {
     let image = icon_image(&rig, 0x1000, (1, 1), IconFormat::Rgba8, 0, &[0; 4]);
     assert_eq!(set_icon(&rig, &[image]), Status::Unsupported);
 }
+
+#[test]
+fn motion_preference_is_readable_without_a_window_and_changes_wake_the_guest() {
+    let rig = Rig::new();
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::Unknown as u32);
+    rig.system.set_reduced_motion(ReducedMotion::Reduce);
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::Reduce as u32);
+    let events = rig.events();
+    assert!(events.iter().any(|(header, event)| header.window == 0
+        && matches!(
+            event,
+            Event::AppReducedMotionChanged(ReducedMotionEvent {
+                preference: ReducedMotion::Reduce
+            })
+        )));
+    rig.system.set_reduced_motion(ReducedMotion::Reduce);
+    assert!(rig.events().is_empty());
+    rig.system.set_reduced_motion(ReducedMotion::NoPreference);
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::NoPreference as u32);
+    assert!(rig.events().iter().any(|(_, event)| matches!(
+        event,
+        Event::AppReducedMotionChanged(ReducedMotionEvent {
+            preference: ReducedMotion::NoPreference
+        })
+    )));
+    rig.write(1024, &99u32.to_le_bytes());
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, 0, OutPtr::new(1024)))
+            .unwrap(),
+        Status::InvalidHandle
+    );
+    assert_eq!(rig.read_u32(1024), 99);
+}
+
+#[test]
+fn concurrent_motion_changes_reach_guests_in_the_order_the_value_changes() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+
+    // Pause the first producer just before it queues its notification. A
+    // second producer must not publish a newer value and overtake that event.
+    struct GatedClock {
+        system: HeadlessSystem,
+        pause: AtomicBool,
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl WindowSystem for GatedClock {
+        fn info(&self) -> SystemInfo {
+            self.system.info()
+        }
+        fn reduced_motion(&self) -> ReducedMotion {
+            self.system.reduced_motion()
+        }
+        fn now(&self) -> u64 {
+            if self.pause.swap(false, Ordering::AcqRel) {
+                self.entered.send(()).unwrap();
+                self.resume.lock().unwrap().recv().unwrap();
+            }
+            self.system.now()
+        }
+        fn displays(&self) -> Vec<crate::system::DisplayData> {
+            self.system.displays()
+        }
+        fn attach(&self, sink: crate::system::InstanceSink) {
+            self.system.attach(sink);
+        }
+        fn create_window(
+            &self,
+            attributes: WindowAttributes,
+            sink: WindowSink,
+        ) -> Result<Box<dyn HostWindow>, Status> {
+            self.system.create_window(attributes, sink)
+        }
+    }
+
+    let system = HeadlessSystem::new(manual());
+    let (entered, first_paused) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let clock = Arc::new(GatedClock {
+        system: system.clone(),
+        pause: AtomicBool::new(false),
+        entered,
+        resume: Mutex::new(resume),
+    });
+    let rig = Rig::on(
+        clock.clone(),
+        system.clone(),
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    clock.pause.store(true, Ordering::Release);
+    let first = {
+        let system = system.clone();
+        std::thread::spawn(move || system.set_reduced_motion(ReducedMotion::Reduce))
+    };
+    first_paused
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    // The first producer is inside its notification. It must still hold the
+    // lock every setter takes, so no other update can publish and overtake.
+    assert!(
+        system.state_is_locked(),
+        "notifications are sent outside the setter's lock"
+    );
+    let second = {
+        let system = system.clone();
+        std::thread::spawn(move || system.set_reduced_motion(ReducedMotion::NoPreference))
+    };
+    release.send(()).unwrap();
+    first.join().unwrap();
+    second.join().unwrap();
+
+    let preferences: Vec<_> = rig
+        .events()
+        .into_iter()
+        .filter_map(|(_, event)| match event {
+            Event::AppReducedMotionChanged(event) => Some(event.preference),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        preferences,
+        [ReducedMotion::Reduce, ReducedMotion::NoPreference]
+    );
+    assert_eq!(system.reduced_motion(), ReducedMotion::NoPreference);
+    assert_eq!(
+        system.options().reduced_motion,
+        ReducedMotion::Unknown,
+        "options remain the initial configuration"
+    );
+}

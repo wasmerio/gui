@@ -27,7 +27,7 @@ default = []
 wasix = ["dep:wasmer-wasix"]
 # Native windows, through winit. Its event loop needs the process's main
 # thread: see `native::GuiMainThread`.
-winit = ["dep:winit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation"]
+winit = ["dep:winit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:block2"]
 # The system clipboard, for native windows.
 clipboard = ["dep:arboard"]
 # Lets guests without a GPU draw in native windows
@@ -92,8 +92,9 @@ dispatch2 = { version = "0.3.1", default-features = false, features = ["alloc"] 
 # (src/native/title_bar.rs) and the Dock's icon (src/native/icon.rs). The
 # versions winit's own dependencies resolve to.
 objc2 = { version = "0.6", optional = true }
-objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSApplication", "NSBitmapImageRep", "NSButton", "NSColorSpace", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSView", "NSWindow"] }
-objc2-foundation = { version = "0.3", default-features = false, optional = true, features = ["std", "NSGeometry", "NSString", "NSUserDefaults"] }
+block2 = { version = "0.6", optional = true }
+objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSAccessibility", "NSWorkspace", "NSApplication", "NSBitmapImageRep", "NSButton", "NSColorSpace", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSView", "NSWindow"] }
+objc2-foundation = { version = "0.3", default-features = false, optional = true, features = ["std", "block2", "NSNotification", "NSOperation", "NSGeometry", "NSString", "NSUserDefaults"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }

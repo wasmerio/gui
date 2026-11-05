@@ -880,3 +880,33 @@ test("a frame the guest drew is the canvas, and a part of one only that part", {
   assert.deepEqual(seen.later, { size: [8, 8], far: blue });
   assert.deepEqual(errors, []);
 });
+
+test("system appearance and motion are reported initially, live, and stop on disposal", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  assert.deepEqual(await page.evaluate(() => {
+    harness.open();
+    return [harness.take("theme"), harness.take("reducedMotion")];
+  }), [[[2]], [[2]]]);
+  await page.emulateMedia({ colorScheme: "light", reducedMotion: "no-preference" });
+  await until(page, () => ["theme", "reducedMotion"].every(name =>
+    harness.calls.some(call => call[0] === name && call[1] === 1)));
+  assert.deepEqual(await page.evaluate(() => [harness.take("theme"), harness.take("reducedMotion")]), [[[1]], [[1]]]);
+  await page.evaluate(() => gui.dispose());
+  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+  await page.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(done))));
+  assert.deepEqual(await page.evaluate(() => [harness.take("theme"), harness.take("reducedMotion")]), [[], []]);
+  assert.deepEqual(errors, []);
+});
+
+test("unavailable preference APIs report Unknown", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+  assert.deepEqual(await page.evaluate(() => {
+    window.matchMedia = undefined;
+    harness.open();
+    return [harness.take("theme"), harness.take("reducedMotion")];
+  }), [[[0]], [[0]]]);
+  assert.deepEqual(errors, []);
+});

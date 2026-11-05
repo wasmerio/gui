@@ -122,6 +122,23 @@ impl ThemeEvent {
     }
 }
 
+/// `WGUIReducedMotionEvent`: 40 bytes before its strings.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ReducedMotionEvent {
+    pub preference: ReducedMotion,
+}
+impl ReducedMotionEvent {
+    pub const SIZE: usize = 40;
+    fn store(&self, b: &mut Vec<u8>) {
+        wr_u32(b, 32, self.preference.as_u32());
+    }
+    fn load(b: &[u8]) -> Option<Self> {
+        Some(Self {
+            preference: ReducedMotion::from_u32(rd_u32(b, 32))?,
+        })
+    }
+}
+
 /// `WGUIWindowResizedEvent`: 56 bytes before its strings.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct WindowResizedEvent {
@@ -588,6 +605,7 @@ pub enum Event {
     AppQuitRequested,
     AppTerminating,
     AppThemeChanged(ThemeEvent),
+    AppReducedMotionChanged(ReducedMotionEvent),
     DisplaysChanged,
     WindowResized(WindowResizedEvent),
     WindowMoved(WindowMovedEvent),
@@ -631,6 +649,7 @@ impl Event {
             Self::AppQuitRequested => EventType::AppQuitRequested,
             Self::AppTerminating => EventType::AppTerminating,
             Self::AppThemeChanged(_) => EventType::AppThemeChanged,
+            Self::AppReducedMotionChanged(_) => EventType::AppReducedMotionChanged,
             Self::DisplaysChanged => EventType::DisplaysChanged,
             Self::WindowResized(_) => EventType::WindowResized,
             Self::WindowMoved(_) => EventType::WindowMoved,
@@ -680,6 +699,7 @@ impl Event {
             Self::AppQuitRequested => HEADER_SIZE,
             Self::AppTerminating => HEADER_SIZE,
             Self::AppThemeChanged(_) => ThemeEvent::SIZE,
+            Self::AppReducedMotionChanged(_) => ReducedMotionEvent::SIZE,
             Self::DisplaysChanged => HEADER_SIZE,
             Self::WindowResized(_) => WindowResizedEvent::SIZE,
             Self::WindowMoved(_) => WindowMovedEvent::SIZE,
@@ -717,6 +737,7 @@ impl Event {
             Self::EventsLost(record) => record.store(&mut b),
             Self::RequestCompleted(record) => record.store(&mut b),
             Self::AppThemeChanged(record) => record.store(&mut b),
+            Self::AppReducedMotionChanged(record) => record.store(&mut b),
             Self::WindowResized(record) => record.store(&mut b),
             Self::WindowMoved(record) => record.store(&mut b),
             Self::WindowFlagsChanged(record) => record.store(&mut b),
@@ -791,6 +812,10 @@ impl Event {
             EventType::AppThemeChanged => {
                 fits(ThemeEvent::SIZE)?;
                 Self::AppThemeChanged(ThemeEvent::load(b)?)
+            }
+            EventType::AppReducedMotionChanged => {
+                fits(ReducedMotionEvent::SIZE)?;
+                Self::AppReducedMotionChanged(ReducedMotionEvent::load(b)?)
             }
             EventType::DisplaysChanged => Self::DisplaysChanged,
             EventType::WindowResized => {

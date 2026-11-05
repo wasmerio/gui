@@ -386,6 +386,8 @@ pub(super) struct App {
     /// from before back when this is dropped.
     icon_order: Vec<WindowKey>,
     app_icon: super::icon::AppIcon,
+    #[cfg(target_os = "macos")]
+    _motion_observer: super::preferences::Observer,
 }
 
 impl App {
@@ -399,6 +401,15 @@ impl App {
                     && let super::Link::Running(proxy) = &*lock(&shared.link)
                 {
                     let _ = proxy.send_event(());
+                }
+            }
+        });
+        #[cfg(target_os = "macos")]
+        let motion_observer = super::preferences::Observer::new({
+            let shared = Arc::downgrade(&shared);
+            move |preference| {
+                if let Some(shared) = shared.upgrade() {
+                    shared.update_reduced_motion(preference);
                 }
             }
         });
@@ -416,6 +427,8 @@ impl App {
             painter: None,
             icon_order: Vec::new(),
             app_icon: super::icon::AppIcon::new(),
+            #[cfg(target_os = "macos")]
+            _motion_observer: motion_observer,
         }
     }
 
@@ -948,9 +961,7 @@ impl App {
     }
 
     fn instances(&self) -> Vec<InstanceSink> {
-        let mut instances = lock(&self.shared.instances);
-        instances.retain(|instance| !instance.is_closed());
-        instances.clone()
+        self.shared.instances().clone()
     }
 }
 

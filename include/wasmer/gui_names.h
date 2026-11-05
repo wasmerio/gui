@@ -124,6 +124,19 @@ static inline const char* wguiThemeName(WGUITheme value) {
 }
 
 /**
+ * The name of a WGUIReducedMotion without its prefix ("Reduce"), or NULL for a value this
+ * header does not know.
+ */
+static inline const char* wguiReducedMotionName(WGUIReducedMotion value) {
+    switch ((uint32_t)value) {
+        case 0x00000000: return "Unknown";
+        case 0x00000001: return "NoPreference";
+        case 0x00000002: return "Reduce";
+        default: return NULL;
+    }
+}
+
+/**
  * The name of a WGUIRequestKind without its prefix ("ClipboardWrite"), or NULL for a value this
  * header does not know.
  */
@@ -430,6 +443,7 @@ static inline const char* wguiEventTypeName(WGUIEventType value) {
         case 0x00000203: return "AppQuitRequested";
         case 0x00000204: return "AppTerminating";
         case 0x00000205: return "AppThemeChanged";
+        case 0x00000206: return "AppReducedMotionChanged";
         case 0x00000301: return "DisplaysChanged";
         case 0x00000401: return "WindowResized";
         case 0x00000402: return "WindowMoved";

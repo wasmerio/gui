@@ -10,10 +10,11 @@
 //! else, and what the tests of this crate run on, which makes it the
 //! reference for how events are ordered.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
+use crate::abi::AbiEnum;
 use crate::system::*;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -64,6 +65,9 @@ pub struct HeadlessOptions {
     /// Whether windows can be opened beyond the targets.
     pub top_level: bool,
     pub theme: Theme,
+    /// The initial motion preference. Read the current value with
+    /// [`WindowSystem::reduced_motion`] after calling the setter.
+    pub reduced_motion: ReducedMotion,
     /// The modifier of the platform's shortcuts.
     pub shortcut_modifier: u32,
     /// The platform it stands in for, as a [`platforms`] bit: which
@@ -91,6 +95,7 @@ impl Default for HeadlessOptions {
             targets: Vec::new(),
             top_level: true,
             theme: Theme::Light,
+            reduced_motion: ReducedMotion::Unknown,
             shortcut_modifier: modifiers::CONTROL,
             platform: 0,
             clipboard_sync: true,
@@ -137,6 +142,7 @@ impl State {
 
 struct Inner {
     options: HeadlessOptions,
+    reduced_motion: AtomicU32,
     started: Instant,
     /// Nanoseconds, for the manual clock.
     time: AtomicU64,
@@ -795,6 +801,7 @@ impl HeadlessSystem {
     pub fn new(options: HeadlessOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
+                reduced_motion: AtomicU32::new(options.reduced_motion as u32),
                 options,
                 started: Instant::now(),
                 time: AtomicU64::new(0),
@@ -808,6 +815,35 @@ impl HeadlessSystem {
         }
     }
 
+    /// Change the simulated user preference and notify attached guests.
+    pub fn set_reduced_motion(&self, preference: ReducedMotion) {
+        // Keep the update and its notifications in the same order for every
+        // guest, even when two producers change the preference concurrently.
+        let mut state = lock(&self.inner.state);
+        if self
+            .inner
+            .reduced_motion
+            .swap(preference as u32, Ordering::AcqRel)
+            != preference as u32
+        {
+            state.instances.retain(|instance| !instance.is_closed());
+            for instance in &state.instances {
+                instance.reduced_motion_changed(preference);
+            }
+        }
+    }
+
+    /// Whether another thread holds the state lock right now, for tests that
+    /// pause a producer and check what it holds while it notifies.
+    #[cfg(test)]
+    pub(crate) fn state_is_locked(&self) -> bool {
+        matches!(
+            self.inner.state.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
+    }
+
+    /// The initial configuration, not a snapshot of mutable preferences.
     pub fn options(&self) -> &HeadlessOptions {
         &self.inner.options
     }
@@ -934,6 +970,11 @@ impl HeadlessSystem {
 }
 
 impl WindowSystem for HeadlessSystem {
+    fn reduced_motion(&self) -> ReducedMotion {
+        ReducedMotion::from_u32(self.inner.reduced_motion.load(Ordering::Acquire))
+            .unwrap_or(ReducedMotion::Unknown)
+    }
+
     fn info(&self) -> SystemInfo {
         use FeatureName::*;
         let options = &self.inner.options;

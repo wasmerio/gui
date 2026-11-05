@@ -218,6 +218,7 @@ impl Script {
                 None => default.theme,
                 Some(theme) => parse_theme(theme)?,
             },
+            reduced_motion: default.reduced_motion,
             shortcut_modifier: match options.shortcut.as_deref() {
                 None | Some("control") => modifiers::CONTROL,
                 Some("super") => modifiers::SUPER,

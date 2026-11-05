@@ -319,6 +319,17 @@ typedef enum WGUITheme {
     WGUITheme_Force32 = 0x7FFFFFFF
 } WGUITheme;
 
+/** The user motion preference, corresponding to prefers-reduced-motion on the web. */
+typedef enum WGUIReducedMotion {
+    /** The host cannot determine the preference. */
+    WGUIReducedMotion_Unknown = 0x00000000,
+    /** No preference for reduced motion was expressed. */
+    WGUIReducedMotion_NoPreference = 0x00000001,
+    /** Avoid unnecessary motion. */
+    WGUIReducedMotion_Reduce = 0x00000002,
+    WGUIReducedMotion_Force32 = 0x7FFFFFFF
+} WGUIReducedMotion;
+
 /** Which function a WGUIEventType_RequestCompleted answers. */
 typedef enum WGUIRequestKind {
     /** wguiWindowSetFullscreen */
@@ -617,6 +628,11 @@ typedef enum WGUIEventType {
     WGUIEventType_AppTerminating = 0x00000204,
     /** The system switched between light and dark. Record: WGUIThemeEvent. */
     WGUIEventType_AppThemeChanged = 0x00000205,
+    /**
+     * The system motion preference changed. After EventsLost, read it with
+     * wguiInstanceGetReducedMotion. Record: WGUIReducedMotionEvent.
+     */
+    WGUIEventType_AppReducedMotionChanged = 0x00000206,
     /** A display was added, removed or changed. List them again. Header only. */
     WGUIEventType_DisplaysChanged = 0x00000301,
     /** Record: WGUIWindowResizedEvent. */
@@ -2005,6 +2021,13 @@ typedef struct WGUIThemeEvent {
     uint32_t reserved;
 } WGUIThemeEvent;
 
+/** The system motion preference changed. */
+typedef struct WGUIReducedMotionEvent {
+    WGUIEventHeader header;
+    WGUIReducedMotion preference;
+    uint32_t reserved;
+} WGUIReducedMotionEvent;
+
 /**
  * The window's content area has a new size or scale factor. A surface on it should be
  * configured again with this size.
@@ -2403,6 +2426,14 @@ WGUIStatus wguiInstanceWriteClipboard(WGUIInstance instance, WGUIClipboardSelect
  */
 WGUI_IMPORT(wguiInstanceSetIcon)
 WGUIStatus wguiInstanceSetIcon(WGUIInstance instance, size_t imageCount, const WGUIIconImage* images);
+
+/**
+ * The system motion preference, also reported by AppReducedMotionChanged. Unknown means the
+ * host cannot determine it. Reduce asks applications to avoid unnecessary motion; it does not
+ * prescribe slower animations or disable them automatically.
+ */
+WGUI_IMPORT(wguiInstanceGetReducedMotion)
+WGUIStatus wguiInstanceGetReducedMotion(WGUIInstance instance, WGUIReducedMotion* preference);
 
 // WGUIDisplay
 

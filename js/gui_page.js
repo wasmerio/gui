@@ -25,6 +25,7 @@ import {
   PointerButton,
   PointerKind,
   PointerTool,
+  ReducedMotion,
   ScreenKeyboardPolicy,
   Status,
   TextInputPurpose,
@@ -886,6 +887,12 @@ class GuiPage {
     return typeof ratio === "number" && ratio > 0 ? ratio : 1;
   }
 
+  reducedMotion() {
+    const query = this.window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query || query.media === "not all") return ReducedMotion.Unknown;
+    return query.matches ? ReducedMotion.Reduce : ReducedMotion.NoPreference;
+  }
+
   theme() {
     const dark = this.window.matchMedia?.("(prefers-color-scheme: dark)");
     if (!dark || dark.media === "not all") return Theme.Unknown;
@@ -956,6 +963,10 @@ class GuiPage {
     const dark = this.window.matchMedia?.("(prefers-color-scheme: dark)");
     dark?.addEventListener?.("change", () => this.core.theme(this.theme()), { signal });
     this.reportDisplay();
+    const motion = this.window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    const reportMotion = () => this.core.reducedMotion?.(this.reducedMotion());
+    motion?.addEventListener?.("change", reportMotion, { signal });
+    reportMotion();
     this.core.theme(this.theme());
   }
 
