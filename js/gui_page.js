@@ -84,6 +84,19 @@ const PASTE_EVENT_WAIT_MS = 500;
 /** How long after a key press the field's own reaction to it is expected. */
 const KEY_INPUT_WINDOW_MS = 100;
 
+/**
+ * What a canvas whose guest takes touch gestures is styled with: the browser
+ * neither pans nor zooms it, and a press on it selects no text, opens no
+ * callout (iOS, on a long press) and flashes no highlight (a tap on iOS and
+ * Android). Values are CSS, by property.
+ */
+const TOUCH_STYLES = Object.freeze({
+  "touch-action": "none",
+  "-webkit-user-select": "none",
+  "-webkit-touch-callout": "none",
+  "-webkit-tap-highlight-color": "transparent",
+});
+
 const SHAPE_NAMES = new Map(
   Object.entries(CursorShape).map(([name, value]) => [
     value,
@@ -255,7 +268,13 @@ class View {
       tabIndex: canvas.getAttribute("tabindex"),
       outline: canvas.style.outline,
       cursor: canvas.style.cursor,
-      touchAction: canvas.style.touchAction,
+      // As value and priority: an `!important` the page gave stays one.
+      touch: Object.fromEntries(
+        Object.keys(TOUCH_STYLES).map((name) => [
+          name,
+          [canvas.style.getPropertyValue(name), canvas.style.getPropertyPriority(name)],
+        ]),
+      ),
       label: canvas.getAttribute("aria-label"),
       width: canvas.style.width,
       height: canvas.style.height,
@@ -396,7 +415,7 @@ class GuiPage {
     else canvas.setAttribute("aria-label", view.before.label);
     canvas.style.outline = view.before.outline;
     canvas.style.cursor = view.before.cursor;
-    canvas.style.touchAction = view.before.touchAction;
+    for (const [name, before] of Object.entries(view.before.touch)) canvas.style.setProperty(name, ...before);
     canvas.style.width = view.before.width;
     canvas.style.height = view.before.height;
     try {
@@ -1047,9 +1066,13 @@ class GuiPage {
   }
 
   applyActions(view) {
-    // Panning and zooming by touch are decided before the event is seen.
-    view.canvas.style.touchAction =
-      view.actions & DefaultActions.TouchGestures ? "none" : view.before.touchAction;
+    // Panning and zooming by touch are decided before the event is seen, and
+    // so are selecting, the callout and the tap highlight.
+    const prevented = (view.actions & DefaultActions.TouchGestures) !== 0;
+    for (const [name, value] of Object.entries(TOUCH_STYLES)) {
+      if (prevented) view.canvas.style.setProperty(name, value);
+      else view.canvas.style.setProperty(name, ...view.before.touch[name]);
+    }
   }
 
   // -- gestures the browser wants a user behind ---------------------------------
@@ -1206,6 +1229,14 @@ class GuiPage {
       // The field must keep the keyboard, which a press on the canvas
       // would take from it.
       if (view.field) event.preventDefault();
+    });
+    on(canvas, "mousedown", (event) => {
+      // Neither may the mouse press a browser makes of a tap: iOS makes one
+      // after the touch has ended, prevented pointerdown or not. It would
+      // give the canvas the focus, and close the on-screen keyboard the field
+      // has just been given, by the guest answering the tap or by the
+      // pointerdown above.
+      if (view.field && this.document.activeElement === view.field) event.preventDefault();
     });
     on(canvas, "pointerup", (event) => {
       this.fire(view);
