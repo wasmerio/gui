@@ -3148,22 +3148,16 @@ fn concurrent_motion_changes_reach_guests_in_the_order_the_value_changes() {
     first_paused
         .recv_timeout(std::time::Duration::from_secs(5))
         .unwrap();
-    let (started, second_started) = mpsc::channel();
-    let (done, second_done) = mpsc::channel();
+    // The first producer is inside its notification. It must still hold the
+    // lock every setter takes, so no other update can publish and overtake.
+    assert!(
+        system.state_is_locked(),
+        "notifications are sent outside the setter's lock"
+    );
     let second = {
         let system = system.clone();
-        std::thread::spawn(move || {
-            started.send(()).unwrap();
-            system.set_reduced_motion(ReducedMotion::NoPreference);
-            done.send(()).unwrap();
-        })
+        std::thread::spawn(move || system.set_reduced_motion(ReducedMotion::NoPreference))
     };
-    second_started
-        .recv_timeout(std::time::Duration::from_secs(5))
-        .unwrap();
-    let overtook = second_done
-        .recv_timeout(std::time::Duration::from_millis(100))
-        .is_ok();
     release.send(()).unwrap();
     first.join().unwrap();
     second.join().unwrap();
@@ -3176,10 +3170,6 @@ fn concurrent_motion_changes_reach_guests_in_the_order_the_value_changes() {
             _ => None,
         })
         .collect();
-    assert!(
-        !overtook,
-        "the second update overtook the first notification"
-    );
     assert_eq!(
         preferences,
         [ReducedMotion::Reduce, ReducedMotion::NoPreference]

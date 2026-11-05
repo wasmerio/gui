@@ -833,6 +833,16 @@ impl HeadlessSystem {
         }
     }
 
+    /// Whether another thread holds the state lock right now, for tests that
+    /// pause a producer and check what it holds while it notifies.
+    #[cfg(test)]
+    pub(crate) fn state_is_locked(&self) -> bool {
+        matches!(
+            self.inner.state.try_lock(),
+            Err(std::sync::TryLockError::WouldBlock)
+        )
+    }
+
     /// The initial configuration, not a snapshot of mutable preferences.
     pub fn options(&self) -> &HeadlessOptions {
         &self.inner.options
