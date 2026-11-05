@@ -38,6 +38,7 @@ int main(void) {
     printf("wguiCreateInstance: %s\n", status_name(wguiCreateInstance(NULL, NULL)));
     wguiInstanceDestroy((WGUIInstance)0);
     printf("wguiInstanceDestroy: returned\n");
+    printf("wguiInstanceGetReducedMotion: %s\n", status_name(wguiInstanceGetReducedMotion((WGUIInstance)0, NULL)));
     printf("wguiInstanceGetInfo: %s\n", status_name(wguiInstanceGetInfo((WGUIInstance)0, NULL)));
     printf("wguiInstancePollEvents: %s\n", status_name(wguiInstancePollEvents((WGUIInstance)0, NULL, 0, NULL)));
     printf("wguiInstanceWaitEvents: %s\n", status_name(wguiInstanceWaitEvents((WGUIInstance)0, 0, NULL)));
@@ -79,6 +80,6 @@ int main(void) {
     printf("wguiWindowPresentPixels: %s\n", status_name(wguiWindowPresentPixels((WGUIWindow)0, NULL, 0, NULL)));
     wguiCursorDestroy((WGUICursor)0);
     printf("wguiCursorDestroy: returned\n");
-    printf("44 functions\n");
+    printf("45 functions\n");
     return 0;
 }

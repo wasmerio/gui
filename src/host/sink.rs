@@ -217,6 +217,13 @@ impl InstanceSink {
         self.emit(0, Event::AppTerminating);
     }
 
+    pub fn reduced_motion_changed(&self, preference: ReducedMotion) {
+        self.emit(
+            0,
+            Event::AppReducedMotionChanged(ReducedMotionEvent { preference }),
+        );
+    }
+
     pub fn theme_changed(&self, theme: Theme) {
         self.emit(0, Event::AppThemeChanged(ThemeEvent { theme }));
     }

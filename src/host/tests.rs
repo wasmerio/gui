@@ -3034,3 +3034,51 @@ fn an_embedder_can_keep_the_icon_its_own() {
     let image = icon_image(&rig, 0x1000, (1, 1), IconFormat::Rgba8, 0, &[0; 4]);
     assert_eq!(set_icon(&rig, &[image]), Status::Unsupported);
 }
+
+#[test]
+fn motion_preference_is_readable_without_a_window_and_changes_wake_the_guest() {
+    let rig = Rig::new();
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::Unknown as u32);
+    rig.system.set_reduced_motion(ReducedMotion::Reduce);
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::Reduce as u32);
+    let events = rig.events();
+    assert!(events.iter().any(|(header, event)| header.window == 0
+        && matches!(
+            event,
+            Event::AppReducedMotionChanged(ReducedMotionEvent {
+                preference: ReducedMotion::Reduce
+            })
+        )));
+    rig.system.set_reduced_motion(ReducedMotion::Reduce);
+    assert!(rig.events().is_empty());
+    rig.system.set_reduced_motion(ReducedMotion::NoPreference);
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, rig.instance, OutPtr::new(1024)))
+            .unwrap(),
+        Status::Success
+    );
+    assert_eq!(rig.read_u32(1024), ReducedMotion::NoPreference as u32);
+    assert!(rig.events().iter().any(|(_, event)| matches!(
+        event,
+        Event::AppReducedMotionChanged(ReducedMotionEvent {
+            preference: ReducedMotion::NoPreference
+        })
+    )));
+    rig.write(1024, &99u32.to_le_bytes());
+    assert_eq!(
+        rig.call(|h, cx| h.instance_get_reduced_motion(cx, 0, OutPtr::new(1024)))
+            .unwrap(),
+        Status::InvalidHandle
+    );
+    assert_eq!(rig.read_u32(1024), 99);
+}

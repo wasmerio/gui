@@ -118,6 +118,19 @@ impl InstanceApi for Host {
         self.destroy_instance(instance);
     }
 
+    fn instance_get_reduced_motion(
+        &self,
+        cx: &mut Cx<'_>,
+        instance: Handle,
+        preference: OutPtr<u32>,
+    ) -> AbiResult<Status> {
+        if self.instance(instance).is_none() {
+            return Ok(Status::InvalidHandle);
+        }
+        preference.write(&cx.mem, &(self.ctx.system.reduced_motion() as u32))?;
+        Ok(Status::Success)
+    }
+
     fn instance_get_info(
         &self,
         cx: &mut Cx<'_>,

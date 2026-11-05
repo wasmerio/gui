@@ -80,6 +80,12 @@ export const Theme = Object.freeze({
   Dark: 0x2,
 });
 
+export const ReducedMotion = Object.freeze({
+  Unknown: 0x0,
+  NoPreference: 0x1,
+  Reduce: 0x2,
+});
+
 export const RequestKind = Object.freeze({
   Fullscreen: 0x1,
   CursorGrab: 0x2,
@@ -249,6 +255,7 @@ export const EventType = Object.freeze({
   AppQuitRequested: 0x203,
   AppTerminating: 0x204,
   AppThemeChanged: 0x205,
+  AppReducedMotionChanged: 0x206,
   DisplaysChanged: 0x301,
   WindowResized: 0x401,
   WindowMoved: 0x402,
@@ -1052,6 +1059,12 @@ export const RECORDS = Object.freeze({
       theme: [32, 'u32'],
     }),
   }),
+  ReducedMotionEvent: Object.freeze({
+    size: 40,
+    fields: Object.freeze({
+      preference: [32, 'u32'],
+    }),
+  }),
   WindowResizedEvent: Object.freeze({
     size: 56,
     fields: Object.freeze({
@@ -1221,6 +1234,7 @@ export const EVENT_RECORDS = Object.freeze({
   0x203: null, // AppQuitRequested
   0x204: null, // AppTerminating
   0x205: 'ThemeEvent', // AppThemeChanged
+  0x206: 'ReducedMotionEvent', // AppReducedMotionChanged
   0x301: null, // DisplaysChanged
   0x401: 'WindowResizedEvent', // WindowResized
   0x402: 'WindowMovedEvent', // WindowMoved

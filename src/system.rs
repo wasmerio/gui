@@ -16,8 +16,8 @@
 pub use crate::abi::enums::{
     AttentionLevel, ClipboardSelection, CursorGrab, CursorGrabReason, CursorShape, FeatureName,
     FullscreenMode, HostKind, KeyLocation, PhysicalKey, PixelAlpha, PixelFormat, PointerButton,
-    PointerKind, PointerTool, ScreenKeyboardPolicy, Status, TextInputPurpose, Theme, TitleBarStyle,
-    WheelPhase, WheelUnit,
+    PointerKind, PointerTool, ReducedMotion, ScreenKeyboardPolicy, Status, TextInputPurpose, Theme,
+    TitleBarStyle, WheelPhase, WheelUnit,
 };
 pub use crate::abi::enums::{
     clipboard_flags, default_actions, input_devices, key, modifiers, platforms, text_input_hints,
@@ -381,6 +381,12 @@ pub struct ClipboardState {
 /// A window system.
 pub trait WindowSystem: Send + Sync + 'static {
     fn info(&self) -> SystemInfo;
+
+    /// The user motion preference, or Unknown where unavailable. Report changes
+    /// with InstanceSink::reduced_motion_changed after updating this value.
+    fn reduced_motion(&self) -> ReducedMotion {
+        ReducedMotion::Unknown
+    }
 
     /// The time on the clock its events are stamped with, in nanoseconds.
     fn now(&self) -> u64;

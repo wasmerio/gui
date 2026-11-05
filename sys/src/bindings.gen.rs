@@ -248,6 +248,15 @@ pub const WGUITheme_Unknown: WGUITheme = 0x00000000;
 pub const WGUITheme_Light: WGUITheme = 0x00000001;
 pub const WGUITheme_Dark: WGUITheme = 0x00000002;
 
+/// The user motion preference, corresponding to prefers-reduced-motion on the web.
+pub type WGUIReducedMotion = u32;
+/// The host cannot determine the preference.
+pub const WGUIReducedMotion_Unknown: WGUIReducedMotion = 0x00000000;
+/// No preference for reduced motion was expressed.
+pub const WGUIReducedMotion_NoPreference: WGUIReducedMotion = 0x00000001;
+/// Avoid unnecessary motion.
+pub const WGUIReducedMotion_Reduce: WGUIReducedMotion = 0x00000002;
+
 /// Which function a WGUIEventType_RequestCompleted answers.
 pub type WGUIRequestKind = u32;
 /// wguiWindowSetFullscreen
@@ -480,6 +489,9 @@ pub const WGUIEventType_AppQuitRequested: WGUIEventType = 0x00000203;
 pub const WGUIEventType_AppTerminating: WGUIEventType = 0x00000204;
 /// The system switched between light and dark. Record: WGUIThemeEvent.
 pub const WGUIEventType_AppThemeChanged: WGUIEventType = 0x00000205;
+/// The system motion preference changed; read it again with wguiInstanceGetReducedMotion after
+/// event loss. Record: WGUIReducedMotionEvent.
+pub const WGUIEventType_AppReducedMotionChanged: WGUIEventType = 0x00000206;
 /// A display was added, removed or changed. List them again. Header only.
 pub const WGUIEventType_DisplaysChanged: WGUIEventType = 0x00000301;
 /// Record: WGUIWindowResizedEvent.
@@ -1942,6 +1954,15 @@ pub struct WGUIThemeEvent {
     pub reserved: u32,
 }
 
+/// The system motion preference changed.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct WGUIReducedMotionEvent {
+    pub header: WGUIEventHeader,
+    pub preference: WGUIReducedMotion,
+    pub reserved: u32,
+}
+
 /// The window's content area has a new size or scale factor. A surface on it should be
 /// configured again with this size.
 #[repr(C)]
@@ -2204,6 +2225,11 @@ extern "C" {
     /// Destroys the instance with everything created on it. Requests still pending complete as
     /// WGUIStatus_Cancelled and are then dropped with the queue.
     pub fn wguiInstanceDestroy(instance: WGUIInstance);
+
+    /// The system motion preference, also reported by AppReducedMotionChanged. Unknown means
+    /// the host cannot determine it. Reduce asks applications to avoid unnecessary motion; it
+    /// does not prescribe slower animations or disable them automatically.
+    pub fn wguiInstanceGetReducedMotion(instance: WGUIInstance, preference: *mut WGUIReducedMotion) -> WGUIStatus;
 
     /// What kind of host this is and what it has.
     pub fn wguiInstanceGetInfo(instance: WGUIInstance, info: *mut WGUIInstanceInfo) -> WGUIStatus;
@@ -2632,6 +2658,9 @@ const _: () = {
     assert!(size_of::<WGUIThemeEvent>() == 40);
     assert!(offset_of!(WGUIThemeEvent, theme) == 32);
     assert!(offset_of!(WGUIThemeEvent, reserved) == 36);
+    assert!(size_of::<WGUIReducedMotionEvent>() == 40);
+    assert!(offset_of!(WGUIReducedMotionEvent, preference) == 32);
+    assert!(offset_of!(WGUIReducedMotionEvent, reserved) == 36);
     assert!(size_of::<WGUIWindowResizedEvent>() == 56);
     assert!(offset_of!(WGUIWindowResizedEvent, width) == 32);
     assert!(offset_of!(WGUIWindowResizedEvent, height) == 36);

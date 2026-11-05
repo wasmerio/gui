@@ -230,6 +230,7 @@ struct Inner {
     next_view: AtomicU64,
     started: Duration,
     theme: AtomicU32,
+    reduced_motion: AtomicU32,
     /// The interface is gone: nothing is queued for it any more.
     closed: AtomicBool,
     /// Small things both sides read and write. Never held while anything
@@ -272,6 +273,7 @@ impl ViewSystem {
                 next_view: AtomicU64::new(1),
                 started: crate::clock::now(),
                 theme: AtomicU32::new(theme as u32),
+                reduced_motion: AtomicU32::new(ReducedMotion::Unknown as u32),
                 closed: AtomicBool::new(false),
                 shared: Mutex::new(Shared::default()),
             }),
@@ -297,6 +299,13 @@ impl ViewSystem {
     /// [`InstanceSink::displays_changed`].
     pub fn set_displays(&self, displays: Vec<DisplayData>) {
         lock(&self.inner.shared).displays = displays;
+    }
+
+    /// Update the motion preference before notifying instances through their sinks.
+    pub fn set_reduced_motion(&self, preference: ReducedMotion) {
+        self.inner
+            .reduced_motion
+            .store(preference as u32, Ordering::Release);
     }
 
     /// The theme the interface is in now. Tell the guests with
@@ -434,6 +443,11 @@ impl WindowSystem for ViewSystem {
         info.theme =
             Theme::from_u32(self.inner.theme.load(Ordering::Acquire)).unwrap_or(Theme::Unknown);
         info
+    }
+
+    fn reduced_motion(&self) -> ReducedMotion {
+        ReducedMotion::from_u32(self.inner.reduced_motion.load(Ordering::Acquire))
+            .unwrap_or(ReducedMotion::Unknown)
     }
 
     fn now(&self) -> u64 {

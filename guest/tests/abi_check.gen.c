@@ -188,6 +188,11 @@ OFFSET(WGUIThemeEvent, header, 0);
 OFFSET(WGUIThemeEvent, theme, 32);
 OFFSET(WGUIThemeEvent, reserved, 36);
 
+SIZE(WGUIReducedMotionEvent, 40, 8);
+OFFSET(WGUIReducedMotionEvent, header, 0);
+OFFSET(WGUIReducedMotionEvent, preference, 32);
+OFFSET(WGUIReducedMotionEvent, reserved, 36);
+
 SIZE(WGUIWindowResizedEvent, 56, 8);
 OFFSET(WGUIWindowResizedEvent, header, 0);
 OFFSET(WGUIWindowResizedEvent, width, 32);
@@ -390,6 +395,11 @@ VALUE(WGUITheme_Unknown, 0x0ULL);
 VALUE(WGUITheme_Light, 0x1ULL);
 VALUE(WGUITheme_Dark, 0x2ULL);
 
+SIZE(WGUIReducedMotion, 4, 4);
+VALUE(WGUIReducedMotion_Unknown, 0x0ULL);
+VALUE(WGUIReducedMotion_NoPreference, 0x1ULL);
+VALUE(WGUIReducedMotion_Reduce, 0x2ULL);
+
 SIZE(WGUIRequestKind, 4, 4);
 VALUE(WGUIRequestKind_Fullscreen, 0x1ULL);
 VALUE(WGUIRequestKind_CursorGrab, 0x2ULL);
@@ -540,6 +550,7 @@ VALUE(WGUIEventType_AppResumed, 0x202ULL);
 VALUE(WGUIEventType_AppQuitRequested, 0x203ULL);
 VALUE(WGUIEventType_AppTerminating, 0x204ULL);
 VALUE(WGUIEventType_AppThemeChanged, 0x205ULL);
+VALUE(WGUIEventType_AppReducedMotionChanged, 0x206ULL);
 VALUE(WGUIEventType_DisplaysChanged, 0x301ULL);
 VALUE(WGUIEventType_WindowResized, 0x401ULL);
 VALUE(WGUIEventType_WindowMoved, 0x402ULL);

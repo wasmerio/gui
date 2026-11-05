@@ -412,6 +412,52 @@ impl Theme {
     }
 }
 
+/// `WGUIReducedMotion`
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ReducedMotion {
+    Unknown = 0x0,
+    NoPreference = 0x1,
+    Reduce = 0x2,
+}
+impl Default for ReducedMotion {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+impl AbiEnum for ReducedMotion {
+    const NAME: &'static str = "WGUIReducedMotion";
+    fn from_u32(value: u32) -> Option<Self> {
+        Some(match value {
+            0x0 => Self::Unknown,
+            0x1 => Self::NoPreference,
+            0x2 => Self::Reduce,
+            _ => return None,
+        })
+    }
+    fn as_u32(self) -> u32 {
+        self as u32
+    }
+    fn name(self) -> &'static str {
+        match self {
+            Self::Unknown => "Unknown",
+            Self::NoPreference => "NoPreference",
+            Self::Reduce => "Reduce",
+        }
+    }
+}
+impl ReducedMotion {
+    /// Every value, in the order of the header.
+    pub const ALL: &'static [Self] = &[
+        Self::Unknown,
+        Self::NoPreference,
+        Self::Reduce,
+    ];
+    pub fn from_abi(value: u32) -> AbiResult<Self> {
+        Self::from_u32(value).ok_or(AbiError::InvalidEnum { ty: Self::NAME, value })
+    }
+}
+
 /// `WGUIRequestKind`
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -1485,6 +1531,7 @@ pub enum EventType {
     AppQuitRequested = 0x203,
     AppTerminating = 0x204,
     AppThemeChanged = 0x205,
+    AppReducedMotionChanged = 0x206,
     DisplaysChanged = 0x301,
     WindowResized = 0x401,
     WindowMoved = 0x402,
@@ -1533,6 +1580,7 @@ impl AbiEnum for EventType {
             0x203 => Self::AppQuitRequested,
             0x204 => Self::AppTerminating,
             0x205 => Self::AppThemeChanged,
+            0x206 => Self::AppReducedMotionChanged,
             0x301 => Self::DisplaysChanged,
             0x401 => Self::WindowResized,
             0x402 => Self::WindowMoved,
@@ -1579,6 +1627,7 @@ impl AbiEnum for EventType {
             Self::AppQuitRequested => "AppQuitRequested",
             Self::AppTerminating => "AppTerminating",
             Self::AppThemeChanged => "AppThemeChanged",
+            Self::AppReducedMotionChanged => "AppReducedMotionChanged",
             Self::DisplaysChanged => "DisplaysChanged",
             Self::WindowResized => "WindowResized",
             Self::WindowMoved => "WindowMoved",
@@ -1623,6 +1672,7 @@ impl EventType {
         Self::AppQuitRequested,
         Self::AppTerminating,
         Self::AppThemeChanged,
+        Self::AppReducedMotionChanged,
         Self::DisplaysChanged,
         Self::WindowResized,
         Self::WindowMoved,

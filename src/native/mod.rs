@@ -29,6 +29,7 @@ mod app;
 mod clipboard;
 mod convert;
 mod icon;
+mod preferences;
 #[rustfmt::skip]
 mod keys;
 #[cfg(feature = "pixels")]
@@ -425,6 +426,10 @@ fn on_wayland() -> bool {
 }
 
 impl WindowSystem for WinitSystem {
+    fn reduced_motion(&self) -> ReducedMotion {
+        preferences::reduced_motion()
+    }
+
     fn info(&self) -> SystemInfo {
         use FeatureName::*;
         let mac = cfg!(target_os = "macos");

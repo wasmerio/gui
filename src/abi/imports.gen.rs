@@ -11,6 +11,7 @@ pub static IMPORTS: &[ImportSig] = &[
     ImportSig { name: "wguiGetFeatures", params: &[I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiCreateInstance", params: &[I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstanceDestroy", params: &[I32], results: &[], blocking: false },
+    ImportSig { name: "wguiInstanceGetReducedMotion", params: &[I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstanceGetInfo", params: &[I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstancePollEvents", params: &[I32, I32, I32, I32], results: &[I32], blocking: false },
     ImportSig { name: "wguiInstanceWaitEvents", params: &[I32, I64, I32], results: &[I32], blocking: true },
