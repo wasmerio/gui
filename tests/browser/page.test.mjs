@@ -345,6 +345,86 @@ test("what the browser would do itself is prevented as the guest said beforehand
   assert.deepEqual(errors, []);
 });
 
+test("a guest that takes touch gestures gets a canvas a press selects nothing on, and gives it back as it was", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  const result = await page.evaluate(() => {
+    const { DefaultActions } = harness.abi;
+    const view = document.querySelector("#view");
+    // What the page itself had said.
+    view.style.setProperty("touch-action", "pan-y", "important");
+    view.style.setProperty("-webkit-tap-highlight-color", "red");
+    const names = ["touch-action", "-webkit-user-select", "-webkit-touch-callout", "-webkit-tap-highlight-color"];
+    // Chrome has no callout to style: there the property is never set.
+    const look = () =>
+      Object.fromEntries(
+        names
+          .filter((name) => CSS.supports(name, name === "-webkit-tap-highlight-color" ? "red" : "none"))
+          .map((name) => [name, view.style.getPropertyValue(name)]),
+      );
+    const gui = harness.open();
+    gui.createWindow(1, { target: "" });
+    const window = look();
+    gui.setDefaultActions(1, DefaultActions.Default & ~DefaultActions.TouchGestures);
+    const allowed = look();
+    const allowedPriority = view.style.getPropertyPriority("touch-action");
+    gui.setDefaultActions(1, DefaultActions.Default);
+    const again = look();
+    gui.destroyWindow(1);
+    const after = look();
+    return { window, allowed, again, after, allowedPriority, afterPriority: view.style.getPropertyPriority("touch-action") };
+  });
+  // What the page had made important stays so.
+  assert.deepEqual([result.allowedPriority, result.afterPriority], ["important", "important"]);
+
+  const window = { "touch-action": "none", "-webkit-user-select": "none", "-webkit-tap-highlight-color": "transparent" };
+  if ("-webkit-touch-callout" in result.window) window["-webkit-touch-callout"] = "none";
+  assert.deepEqual(result.window, window);
+  assert.deepEqual(result.again, window);
+  const before = { "touch-action": "pan-y", "-webkit-user-select": "", "-webkit-tap-highlight-color": "red" };
+  if ("-webkit-touch-callout" in result.window) before["-webkit-touch-callout"] = "";
+  assert.deepEqual(result.allowed, before);
+  assert.deepEqual(result.after, before);
+  assert.deepEqual(errors, []);
+});
+
+test("the text field keeps the focus through the mouse press a browser makes of a tap", { skip }, async (context) => {
+  const { page, errors, unavailable } = await openPage(context);
+  if (unavailable) return context.skip(unavailable);
+
+  await page.evaluate(() => harness.open().createWindow(1, { target: "" }));
+  await page.mouse.click(120, 70);
+  const result = await page.evaluate(() => {
+    const view = document.querySelector("#view");
+    // iOS makes this press after the touch ends, even when its pointerdown
+    // was prevented; it would give the canvas the focus, and close the
+    // on-screen keyboard. Chrome makes none then, so it is made here; what
+    // matters is that the press is prevented, which keeps the focus where it
+    // is in every browser.
+    const press = () => !view.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+    const typing = () => document.activeElement?.tagName.toLowerCase();
+    gui.setTextInput(1, true, 0, 0, 20, 20, 4, 30, 0);
+    const field = typing();
+    const whileTyping = press();
+    // A field the user closed the keyboard of has no focus to keep.
+    document.activeElement.blur();
+    const afterClosing = press();
+    gui.focus(1);
+    gui.setTextInput(1, false, 0, 0, 0, 0, 0, 0, 0);
+    return { field, whileTyping, afterClosing, afterTyping: press(), focused: typing() };
+  });
+
+  assert.deepEqual(result, {
+    field: "textarea",
+    whileTyping: true,
+    afterClosing: false,
+    afterTyping: false,
+    focused: "canvas",
+  });
+  assert.deepEqual(errors, []);
+});
+
 test("a cursor is the canvas's, in the names CSS has", { skip }, async (context) => {
   const { page, errors, unavailable } = await openPage(context);
   if (unavailable) return context.skip(unavailable);
