@@ -38,7 +38,6 @@ int main(void) {
     printf("wguiCreateInstance: %s\n", status_name(wguiCreateInstance(NULL, NULL)));
     wguiInstanceDestroy((WGUIInstance)0);
     printf("wguiInstanceDestroy: returned\n");
-    printf("wguiInstanceGetReducedMotion: %s\n", status_name(wguiInstanceGetReducedMotion((WGUIInstance)0, NULL)));
     printf("wguiInstanceGetInfo: %s\n", status_name(wguiInstanceGetInfo((WGUIInstance)0, NULL)));
     printf("wguiInstancePollEvents: %s\n", status_name(wguiInstancePollEvents((WGUIInstance)0, NULL, 0, NULL)));
     printf("wguiInstanceWaitEvents: %s\n", status_name(wguiInstanceWaitEvents((WGUIInstance)0, 0, NULL)));
@@ -53,6 +52,7 @@ int main(void) {
     printf("wguiInstanceRequestClipboard: %s\n", status_name(wguiInstanceRequestClipboard((WGUIInstance)0, (WGUIClipboardSelection)0, NULL, 0, 0)));
     printf("wguiInstanceWriteClipboard: %s\n", status_name(wguiInstanceWriteClipboard((WGUIInstance)0, (WGUIClipboardSelection)0, 0, NULL, 0)));
     printf("wguiInstanceSetIcon: %s\n", status_name(wguiInstanceSetIcon((WGUIInstance)0, 0, NULL)));
+    printf("wguiInstanceGetReducedMotion: %s\n", status_name(wguiInstanceGetReducedMotion((WGUIInstance)0, NULL)));
     printf("wguiDisplayGetInfo: %s\n", status_name(wguiDisplayGetInfo((WGUIDisplay)0, NULL)));
     printf("wguiDisplayGetName: %s\n", status_name(wguiDisplayGetName((WGUIDisplay)0, NULL, 0, NULL)));
     wguiWindowDestroy((WGUIWindow)0);

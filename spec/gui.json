@@ -38,12 +38,6 @@
           "doc": "Destroys the instance with everything created on it. Requests still pending complete as WGUIStatus_Cancelled and are then dropped with the queue."
         },
         {
-          "name": "get_reduced_motion",
-          "doc": "The system motion preference, also reported by AppReducedMotionChanged. Unknown means the host cannot determine it. Reduce asks applications to avoid unnecessary motion; it does not prescribe slower animations or disable them automatically.",
-          "returns": "status",
-          "args": [ { "name": "preference", "type": "enum.reduced_motion", "pointer": "mutable" } ]
-        },
-        {
           "name": "get_info",
           "doc": "What kind of host this is and what it has.",
           "returns": "status",
@@ -165,6 +159,12 @@
           "args": [
             { "name": "images", "type": "array<struct.icon_image>", "pointer": "immutable" }
           ]
+        },
+        {
+          "name": "get_reduced_motion",
+          "doc": "The system motion preference, also reported by AppReducedMotionChanged. Unknown means the host cannot determine it. Reduce asks applications to avoid unnecessary motion; it does not prescribe slower animations or disable them automatically.",
+          "returns": "status",
+          "args": [ { "name": "preference", "type": "enum.reduced_motion", "pointer": "mutable" } ]
         }
       ]
     },
@@ -1452,7 +1452,7 @@
     { "name": "app_terminating", "class": "application", "index": 4, "doc": "The program is about to be stopped whatever it does. Save now." },
     { "name": "app_theme_changed", "class": "application", "index": 5, "record": "theme_event", "doc": "The system switched between light and dark." },
 
-    { "name": "app_reduced_motion_changed", "class": "application", "index": 6, "record": "reduced_motion_event", "doc": "The system motion preference changed; read it again with wguiInstanceGetReducedMotion after event loss." },
+    { "name": "app_reduced_motion_changed", "class": "application", "index": 6, "record": "reduced_motion_event", "doc": "The system motion preference changed. After EventsLost, read it with wguiInstanceGetReducedMotion." },
 
     { "name": "displays_changed", "class": "display", "index": 1, "doc": "A display was added, removed or changed. List them again." },
 

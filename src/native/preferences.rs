@@ -2,23 +2,34 @@
 use crate::system::ReducedMotion;
 
 #[cfg(not(target_os = "macos"))]
-pub(super) fn reduced_motion() -> ReducedMotion {
+pub(super) fn initial_reduced_motion() -> ReducedMotion {
     ReducedMotion::Unknown
 }
 
 #[cfg(target_os = "macos")]
-pub(super) use mac::{Observer, reduced_motion};
+pub(super) use mac::{Observer, initial_reduced_motion};
 
 #[cfg(target_os = "macos")]
 mod mac {
     use super::ReducedMotion;
+    use objc2::MainThreadMarker;
     use objc2::rc::Retained;
     use objc2::runtime::ProtocolObject;
     use objc2_app_kit::{NSWorkspace, NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification};
-    use objc2_foundation::{NSNotificationCenter, NSObjectProtocol};
-    use std::sync::atomic::{AtomicU32, Ordering};
+    use objc2_foundation::{NSNotificationCenter, NSObjectProtocol, NSOperationQueue};
+    use std::sync::Arc;
 
-    pub(in crate::native) fn reduced_motion() -> ReducedMotion {
+    /// Usually called by GuiMainThread's constructor on the process main
+    /// thread. If constructed elsewhere, the observer seeds the cache later.
+    pub(in crate::native) fn initial_reduced_motion() -> ReducedMotion {
+        if MainThreadMarker::new().is_none() {
+            return ReducedMotion::Unknown;
+        }
+        read_reduced_motion()
+    }
+
+    fn read_reduced_motion() -> ReducedMotion {
+        debug_assert!(MainThreadMarker::new().is_some());
         if NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion() {
             ReducedMotion::Reduce
         } else {
@@ -36,24 +47,25 @@ mod mac {
             changed: impl Fn(ReducedMotion) + Send + Sync + 'static,
         ) -> Self {
             let center = NSWorkspace::sharedWorkspace().notificationCenter();
-            let previous = AtomicU32::new(reduced_motion() as u32);
+            let changed = Arc::new(changed);
+            let notify = Arc::clone(&changed);
             let block = block2::RcBlock::new(move |_| {
-                let preference = reduced_motion();
-                if previous.swap(preference as u32, Ordering::AcqRel) != preference as u32 {
-                    changed(preference);
-                }
+                notify(read_reduced_motion());
             });
-            // The workspace's center owns the block. No queue means delivery on
-            // the posting thread; captured state is Send + Sync. Keep the token
-            // until the native loop ends, then unregister it.
+            // The workspace owns the sendable block. Deliver on the main queue
+            // so every AppKit read stays on the main thread. Shared's cached
+            // value suppresses unrelated accessibility notifications.
             let token = unsafe {
                 center.addObserverForName_object_queue_usingBlock(
                     Some(NSWorkspaceAccessibilityDisplayOptionsDidChangeNotification),
                     None,
-                    None,
+                    Some(&NSOperationQueue::mainQueue()),
                     &block,
                 )
             };
+            // Re-read after registering to cover a change between construction
+            // of the window system and starting the native loop.
+            changed(read_reduced_motion());
             Self { center, token }
         }
     }

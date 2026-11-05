@@ -10,7 +10,7 @@
 //! else, and what the tests of this crate run on, which makes it the
 //! reference for how events are ordered.
 
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -65,6 +65,8 @@ pub struct HeadlessOptions {
     /// Whether windows can be opened beyond the targets.
     pub top_level: bool,
     pub theme: Theme,
+    /// The initial motion preference. Read the current value with
+    /// [`WindowSystem::reduced_motion`] after calling the setter.
     pub reduced_motion: ReducedMotion,
     /// The modifier of the platform's shortcuts.
     pub shortcut_modifier: u32,
@@ -140,7 +142,7 @@ impl State {
 
 struct Inner {
     options: HeadlessOptions,
-    reduced_motion: std::sync::atomic::AtomicU32,
+    reduced_motion: AtomicU32,
     started: Instant,
     /// Nanoseconds, for the manual clock.
     time: AtomicU64,
@@ -799,7 +801,7 @@ impl HeadlessSystem {
     pub fn new(options: HeadlessOptions) -> Self {
         Self {
             inner: Arc::new(Inner {
-                reduced_motion: std::sync::atomic::AtomicU32::new(options.reduced_motion as u32),
+                reduced_motion: AtomicU32::new(options.reduced_motion as u32),
                 options,
                 started: Instant::now(),
                 time: AtomicU64::new(0),
@@ -815,18 +817,23 @@ impl HeadlessSystem {
 
     /// Change the simulated user preference and notify attached guests.
     pub fn set_reduced_motion(&self, preference: ReducedMotion) {
+        // Keep the update and its notifications in the same order for every
+        // guest, even when two producers change the preference concurrently.
+        let mut state = lock(&self.inner.state);
         if self
             .inner
             .reduced_motion
             .swap(preference as u32, Ordering::AcqRel)
             != preference as u32
         {
-            for instance in self.instances() {
+            state.instances.retain(|instance| !instance.is_closed());
+            for instance in &state.instances {
                 instance.reduced_motion_changed(preference);
             }
         }
     }
 
+    /// The initial configuration, not a snapshot of mutable preferences.
     pub fn options(&self) -> &HeadlessOptions {
         &self.inner.options
     }

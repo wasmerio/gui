@@ -489,8 +489,8 @@ pub const WGUIEventType_AppQuitRequested: WGUIEventType = 0x00000203;
 pub const WGUIEventType_AppTerminating: WGUIEventType = 0x00000204;
 /// The system switched between light and dark. Record: WGUIThemeEvent.
 pub const WGUIEventType_AppThemeChanged: WGUIEventType = 0x00000205;
-/// The system motion preference changed; read it again with wguiInstanceGetReducedMotion after
-/// event loss. Record: WGUIReducedMotionEvent.
+/// The system motion preference changed. After EventsLost, read it with
+/// wguiInstanceGetReducedMotion. Record: WGUIReducedMotionEvent.
 pub const WGUIEventType_AppReducedMotionChanged: WGUIEventType = 0x00000206;
 /// A display was added, removed or changed. List them again. Header only.
 pub const WGUIEventType_DisplaysChanged: WGUIEventType = 0x00000301;
@@ -2226,11 +2226,6 @@ extern "C" {
     /// WGUIStatus_Cancelled and are then dropped with the queue.
     pub fn wguiInstanceDestroy(instance: WGUIInstance);
 
-    /// The system motion preference, also reported by AppReducedMotionChanged. Unknown means
-    /// the host cannot determine it. Reduce asks applications to avoid unnecessary motion; it
-    /// does not prescribe slower animations or disable them automatically.
-    pub fn wguiInstanceGetReducedMotion(instance: WGUIInstance, preference: *mut WGUIReducedMotion) -> WGUIStatus;
-
     /// What kind of host this is and what it has.
     pub fn wguiInstanceGetInfo(instance: WGUIInstance, info: *mut WGUIInstanceInfo) -> WGUIStatus;
 
@@ -2333,6 +2328,11 @@ extern "C" {
     /// an edge longer than 1024 pixels, or more than 16 MiB kept, of files or of pixels. Needs
     /// WGUIFeatureName_AppIcon.
     pub fn wguiInstanceSetIcon(instance: WGUIInstance, imageCount: usize, images: *const WGUIIconImage) -> WGUIStatus;
+
+    /// The system motion preference, also reported by AppReducedMotionChanged. Unknown means
+    /// the host cannot determine it. Reduce asks applications to avoid unnecessary motion; it
+    /// does not prescribe slower animations or disable them automatically.
+    pub fn wguiInstanceGetReducedMotion(instance: WGUIInstance, preference: *mut WGUIReducedMotion) -> WGUIStatus;
 
     // WGUIDisplay
 

@@ -3082,3 +3082,112 @@ fn motion_preference_is_readable_without_a_window_and_changes_wake_the_guest() {
     );
     assert_eq!(rig.read_u32(1024), 99);
 }
+
+#[test]
+fn concurrent_motion_changes_reach_guests_in_the_order_the_value_changes() {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::mpsc;
+
+    // Pause the first producer just before it queues its notification. A
+    // second producer must not publish a newer value and overtake that event.
+    struct GatedClock {
+        system: HeadlessSystem,
+        pause: AtomicBool,
+        entered: mpsc::Sender<()>,
+        resume: Mutex<mpsc::Receiver<()>>,
+    }
+    impl WindowSystem for GatedClock {
+        fn info(&self) -> SystemInfo {
+            self.system.info()
+        }
+        fn reduced_motion(&self) -> ReducedMotion {
+            self.system.reduced_motion()
+        }
+        fn now(&self) -> u64 {
+            if self.pause.swap(false, Ordering::AcqRel) {
+                self.entered.send(()).unwrap();
+                self.resume.lock().unwrap().recv().unwrap();
+            }
+            self.system.now()
+        }
+        fn displays(&self) -> Vec<crate::system::DisplayData> {
+            self.system.displays()
+        }
+        fn attach(&self, sink: crate::system::InstanceSink) {
+            self.system.attach(sink);
+        }
+        fn create_window(
+            &self,
+            attributes: WindowAttributes,
+            sink: WindowSink,
+        ) -> Result<Box<dyn HostWindow>, Status> {
+            self.system.create_window(attributes, sink)
+        }
+    }
+
+    let system = HeadlessSystem::new(manual());
+    let (entered, first_paused) = mpsc::channel();
+    let (release, resume) = mpsc::channel();
+    let clock = Arc::new(GatedClock {
+        system: system.clone(),
+        pause: AtomicBool::new(false),
+        entered,
+        resume: Mutex::new(resume),
+    });
+    let rig = Rig::on(
+        clock.clone(),
+        system.clone(),
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    clock.pause.store(true, Ordering::Release);
+    let first = {
+        let system = system.clone();
+        std::thread::spawn(move || system.set_reduced_motion(ReducedMotion::Reduce))
+    };
+    first_paused
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let (started, second_started) = mpsc::channel();
+    let (done, second_done) = mpsc::channel();
+    let second = {
+        let system = system.clone();
+        std::thread::spawn(move || {
+            started.send(()).unwrap();
+            system.set_reduced_motion(ReducedMotion::NoPreference);
+            done.send(()).unwrap();
+        })
+    };
+    second_started
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .unwrap();
+    let overtook = second_done
+        .recv_timeout(std::time::Duration::from_millis(100))
+        .is_ok();
+    release.send(()).unwrap();
+    first.join().unwrap();
+    second.join().unwrap();
+
+    let preferences: Vec<_> = rig
+        .events()
+        .into_iter()
+        .filter_map(|(_, event)| match event {
+            Event::AppReducedMotionChanged(event) => Some(event.preference),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        !overtook,
+        "the second update overtook the first notification"
+    );
+    assert_eq!(
+        preferences,
+        [ReducedMotion::Reduce, ReducedMotion::NoPreference]
+    );
+    assert_eq!(system.reduced_motion(), ReducedMotion::NoPreference);
+    assert_eq!(
+        system.options().reduced_motion,
+        ReducedMotion::Unknown,
+        "options remain the initial configuration"
+    );
+}

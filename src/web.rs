@@ -796,12 +796,8 @@ fn core(scope: u32) -> (JsValue, Vec<Box<dyn std::any::Any>>) {
         "reducedMotion",
         Closure::<dyn Fn(u32)>::new(move |value| {
             let preference = ReducedMotion::from_u32(value).unwrap_or(ReducedMotion::Unknown);
-            let changed = with_page(scope, |page| {
-                let changed = page.views.reduced_motion() != preference;
-                page.views.set_reduced_motion(preference);
-                changed
-            })
-            .unwrap_or(false);
+            let changed =
+                with_page(scope, |page| page.views.set_reduced_motion(preference)).unwrap_or(false);
             if changed {
                 for instance in instances(scope) {
                     instance.reduced_motion_changed(preference);

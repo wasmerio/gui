@@ -629,8 +629,8 @@ typedef enum WGUIEventType {
     /** The system switched between light and dark. Record: WGUIThemeEvent. */
     WGUIEventType_AppThemeChanged = 0x00000205,
     /**
-     * The system motion preference changed; read it again with wguiInstanceGetReducedMotion
-     * after event loss. Record: WGUIReducedMotionEvent.
+     * The system motion preference changed. After EventsLost, read it with
+     * wguiInstanceGetReducedMotion. Record: WGUIReducedMotionEvent.
      */
     WGUIEventType_AppReducedMotionChanged = 0x00000206,
     /** A display was added, removed or changed. List them again. Header only. */
@@ -2289,14 +2289,6 @@ WGUIStatus wguiCreateInstance(const WGUIInstanceDescriptor* descriptor, WGUIInst
 WGUI_IMPORT(wguiInstanceDestroy)
 void wguiInstanceDestroy(WGUIInstance instance);
 
-/**
- * The system motion preference, also reported by AppReducedMotionChanged. Unknown means the
- * host cannot determine it. Reduce asks applications to avoid unnecessary motion; it does not
- * prescribe slower animations or disable them automatically.
- */
-WGUI_IMPORT(wguiInstanceGetReducedMotion)
-WGUIStatus wguiInstanceGetReducedMotion(WGUIInstance instance, WGUIReducedMotion* preference);
-
 /** What kind of host this is and what it has. */
 WGUI_IMPORT(wguiInstanceGetInfo)
 WGUIStatus wguiInstanceGetInfo(WGUIInstance instance, WGUIInstanceInfo* info);
@@ -2434,6 +2426,14 @@ WGUIStatus wguiInstanceWriteClipboard(WGUIInstance instance, WGUIClipboardSelect
  */
 WGUI_IMPORT(wguiInstanceSetIcon)
 WGUIStatus wguiInstanceSetIcon(WGUIInstance instance, size_t imageCount, const WGUIIconImage* images);
+
+/**
+ * The system motion preference, also reported by AppReducedMotionChanged. Unknown means the
+ * host cannot determine it. Reduce asks applications to avoid unnecessary motion; it does not
+ * prescribe slower animations or disable them automatically.
+ */
+WGUI_IMPORT(wguiInstanceGetReducedMotion)
+WGUIStatus wguiInstanceGetReducedMotion(WGUIInstance instance, WGUIReducedMotion* preference);
 
 // WGUIDisplay
 

@@ -17,6 +17,7 @@ wguiInstanceReadClipboard: InvalidArgument
 wguiInstanceRequestClipboard: InvalidArgument
 wguiInstanceWriteClipboard: InvalidArgument
 wguiInstanceSetIcon: InvalidHandle
+wguiInstanceGetReducedMotion: InvalidArgument
 wguiDisplayGetInfo: InvalidArgument
 wguiDisplayGetName: InvalidArgument
 wguiWindowDestroy: returned
@@ -42,4 +43,4 @@ wguiWindowResetTextInput: InvalidHandle
 wguiWindowSetDefaultActions: InvalidHandle
 wguiWindowPresentPixels: InvalidArgument
 wguiCursorDestroy: returned
-44 functions
+45 functions

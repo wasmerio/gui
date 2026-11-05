@@ -30,8 +30,6 @@ pub trait GlobalApi {
 pub trait InstanceApi {
     /// `wguiInstanceDestroy`
     fn instance_destroy(&self, cx: &mut Cx<'_>, instance: Handle);
-    /// `wguiInstanceGetReducedMotion`
-    fn instance_get_reduced_motion(&self, cx: &mut Cx<'_>, instance: Handle, preference: OutPtr<u32>) -> AbiResult<Status>;
     /// `wguiInstanceGetInfo`
     fn instance_get_info(&self, cx: &mut Cx<'_>, instance: Handle, info: OutPtr<InstanceInfo>) -> AbiResult<Status>;
     /// `wguiInstancePollEvents`
@@ -60,6 +58,8 @@ pub trait InstanceApi {
     fn instance_write_clipboard(&self, cx: &mut Cx<'_>, instance: Handle, selection: ClipboardSelection, items: &[ClipboardItem], tag: u64) -> AbiResult<Status>;
     /// `wguiInstanceSetIcon`
     fn instance_set_icon(&self, cx: &mut Cx<'_>, instance: Handle, images: &[IconImage]) -> AbiResult<Status>;
+    /// `wguiInstanceGetReducedMotion`
+    fn instance_get_reduced_motion(&self, cx: &mut Cx<'_>, instance: Handle, preference: OutPtr<u32>) -> AbiResult<Status>;
 }
 
 /// The `WGUIDisplay` functions of `gui.h`.
@@ -182,15 +182,6 @@ fn import_create_instance(mut env: FunctionEnvMut<'_, GuiEnv>, descriptor: u32, 
 fn import_instance_destroy(mut env: FunctionEnvMut<'_, GuiEnv>, instance: u32) -> Result<(), RuntimeError> {
     enter(&mut env, "wguiInstanceDestroy", |host, cx| {
         Ok(host.instance_destroy(cx, instance))
-    })
-}
-
-fn import_instance_get_reduced_motion(mut env: FunctionEnvMut<'_, GuiEnv>, instance: u32, preference: u32) -> Result<u32, RuntimeError> {
-    enter(&mut env, "wguiInstanceGetReducedMotion", |host, cx| {
-        if preference == 0 {
-            return Err(AbiError::NullPointer("preference"));
-        }
-        host.instance_get_reduced_motion(cx, instance, OutPtr::new(preference))
     })
 }
 
@@ -318,6 +309,15 @@ fn import_instance_set_icon(mut env: FunctionEnvMut<'_, GuiEnv>, instance: u32, 
     enter(&mut env, "wguiInstanceSetIcon", |host, cx| {
         let images = cx.mem.read_array::<IconImage>(images, image_count)?;
         host.instance_set_icon(cx, instance, &images)
+    })
+}
+
+fn import_instance_get_reduced_motion(mut env: FunctionEnvMut<'_, GuiEnv>, instance: u32, preference: u32) -> Result<u32, RuntimeError> {
+    enter(&mut env, "wguiInstanceGetReducedMotion", |host, cx| {
+        if preference == 0 {
+            return Err(AbiError::NullPointer("preference"));
+        }
+        host.instance_get_reduced_motion(cx, instance, OutPtr::new(preference))
     })
 }
 
@@ -500,7 +500,6 @@ pub(crate) fn register(store: &mut impl AsStoreMut, env: &FunctionEnv<GuiEnv>, e
     exports.insert("wguiGetFeatures", Function::new_typed_with_env(store, env, import_get_features));
     exports.insert("wguiCreateInstance", Function::new_typed_with_env(store, env, import_create_instance));
     exports.insert("wguiInstanceDestroy", Function::new_typed_with_env(store, env, import_instance_destroy));
-    exports.insert("wguiInstanceGetReducedMotion", Function::new_typed_with_env(store, env, import_instance_get_reduced_motion));
     exports.insert("wguiInstanceGetInfo", Function::new_typed_with_env(store, env, import_instance_get_info));
     exports.insert("wguiInstancePollEvents", Function::new_typed_with_env(store, env, import_instance_poll_events));
     exports.insert("wguiInstanceWaitEvents", Function::new_typed_with_env(store, env, import_instance_wait_events));
@@ -515,6 +514,7 @@ pub(crate) fn register(store: &mut impl AsStoreMut, env: &FunctionEnv<GuiEnv>, e
     exports.insert("wguiInstanceRequestClipboard", Function::new_typed_with_env(store, env, import_instance_request_clipboard));
     exports.insert("wguiInstanceWriteClipboard", Function::new_typed_with_env(store, env, import_instance_write_clipboard));
     exports.insert("wguiInstanceSetIcon", Function::new_typed_with_env(store, env, import_instance_set_icon));
+    exports.insert("wguiInstanceGetReducedMotion", Function::new_typed_with_env(store, env, import_instance_get_reduced_motion));
     exports.insert("wguiDisplayGetInfo", Function::new_typed_with_env(store, env, import_display_get_info));
     exports.insert("wguiDisplayGetName", Function::new_typed_with_env(store, env, import_display_get_name));
     exports.insert("wguiWindowDestroy", Function::new_typed_with_env(store, env, import_window_destroy));
@@ -598,21 +598,21 @@ fn call(index: usize, env: FunctionEnvMut<'_, GuiEnv>, args: &[wasmer::Value]) -
         2 => value(import_get_features(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
         3 => value(import_create_instance(env, raw[0] as u32, raw[1] as u32)),
         4 => nothing(import_instance_destroy(env, raw[0] as u32)),
-        5 => value(import_instance_get_reduced_motion(env, raw[0] as u32, raw[1] as u32)),
-        6 => value(import_instance_get_info(env, raw[0] as u32, raw[1] as u32)),
-        7 => value(import_instance_poll_events(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        8 => value(import_instance_wait_events(env, raw[0] as u32, raw[1], raw[2] as u32)),
-        9 => value(import_instance_wake(env, raw[0] as u32)),
-        10 => value(import_instance_set_event_mask(env, raw[0] as u32, raw[1])),
-        11 => value(import_instance_get_time(env, raw[0] as u32, raw[1] as u32)),
-        12 => value(import_instance_get_displays(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
-        13 => value(import_instance_create_window(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        14 => value(import_instance_create_cursor(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        15 => value(import_instance_get_clipboard_info(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
-        16 => value(import_instance_read_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4] as u32, raw[5] as u32, raw[6] as u32)),
-        17 => value(import_instance_request_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
-        18 => value(import_instance_write_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
-        19 => value(import_instance_set_icon(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        5 => value(import_instance_get_info(env, raw[0] as u32, raw[1] as u32)),
+        6 => value(import_instance_poll_events(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        7 => value(import_instance_wait_events(env, raw[0] as u32, raw[1], raw[2] as u32)),
+        8 => value(import_instance_wake(env, raw[0] as u32)),
+        9 => value(import_instance_set_event_mask(env, raw[0] as u32, raw[1])),
+        10 => value(import_instance_get_time(env, raw[0] as u32, raw[1] as u32)),
+        11 => value(import_instance_get_displays(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
+        12 => value(import_instance_create_window(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        13 => value(import_instance_create_cursor(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        14 => value(import_instance_get_clipboard_info(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        15 => value(import_instance_read_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4] as u32, raw[5] as u32, raw[6] as u32)),
+        16 => value(import_instance_request_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
+        17 => value(import_instance_write_clipboard(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32, raw[4])),
+        18 => value(import_instance_set_icon(env, raw[0] as u32, raw[1] as u32, raw[2] as u32)),
+        19 => value(import_instance_get_reduced_motion(env, raw[0] as u32, raw[1] as u32)),
         20 => value(import_display_get_info(env, raw[0] as u32, raw[1] as u32)),
         21 => value(import_display_get_name(env, raw[0] as u32, raw[1] as u32, raw[2] as u32, raw[3] as u32)),
         22 => nothing(import_window_destroy(env, raw[0] as u32)),

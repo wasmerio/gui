@@ -39,6 +39,7 @@ mod surface;
 mod title_bar;
 
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{self, SyncSender};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
@@ -46,6 +47,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, anyhow};
 use winit::event_loop::{EventLoop, EventLoopProxy};
 
+use crate::abi::AbiEnum;
 use crate::system::*;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -171,6 +173,8 @@ struct Shared {
     commands: Mutex<VecDeque<Command>>,
     /// The guests connected, for what concerns no window in particular.
     instances: Mutex<Vec<InstanceSink>>,
+    /// Seeded and updated on the main thread; guest threads only read it.
+    reduced_motion: AtomicU32,
     #[cfg(feature = "clipboard")]
     clipboard: clipboard::Clipboard,
     /// The clipboard sequence number guests were last told of.
@@ -179,6 +183,28 @@ struct Shared {
 }
 
 impl Shared {
+    /// The connected guests, with retired sinks removed. The guard lets an
+    /// attach or preference update use the same pruning and synchronization.
+    fn instances(&self) -> MutexGuard<'_, Vec<InstanceSink>> {
+        let mut instances = lock(&self.instances);
+        instances.retain(|instance| !instance.is_closed());
+        instances
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    fn update_reduced_motion(&self, preference: ReducedMotion) {
+        let instances = self.instances();
+        if self
+            .reduced_motion
+            .swap(preference as u32, Ordering::AcqRel)
+            != preference as u32
+        {
+            for instance in &*instances {
+                instance.reduced_motion_changed(preference);
+            }
+        }
+    }
+
     /// Hands a command to the loop, starting the loop if this is the first.
     /// `false` when there is no loop any more: the command is dropped, and
     /// with it whatever was waiting for its answer.
@@ -237,7 +263,7 @@ impl Shared {
         if known.swap(state.sequence, std::sync::atomic::Ordering::AcqRel) == state.sequence {
             return;
         }
-        let instances = lock(&self.instances).clone();
+        let instances = self.instances().clone();
         for instance in instances {
             instance.clipboard_changed(ClipboardSelection::Clipboard, state);
         }
@@ -281,6 +307,7 @@ impl GuiMainThread {
             changed: Condvar::new(),
             commands: Mutex::new(VecDeque::new()),
             instances: Mutex::new(Vec::new()),
+            reduced_motion: AtomicU32::new(preferences::initial_reduced_motion() as u32),
             #[cfg(feature = "clipboard")]
             clipboard: clipboard::Clipboard::new(),
             #[cfg(feature = "clipboard")]
@@ -427,7 +454,8 @@ fn on_wayland() -> bool {
 
 impl WindowSystem for WinitSystem {
     fn reduced_motion(&self) -> ReducedMotion {
-        preferences::reduced_motion()
+        ReducedMotion::from_u32(self.shared.reduced_motion.load(Ordering::Acquire))
+            .unwrap_or(ReducedMotion::Unknown)
     }
 
     fn info(&self) -> SystemInfo {
@@ -503,9 +531,7 @@ impl WindowSystem for WinitSystem {
     }
 
     fn attach(&self, instance: InstanceSink) {
-        let mut instances = lock(&self.shared.instances);
-        instances.retain(|instance| !instance.is_closed());
-        instances.push(instance);
+        self.shared.instances().push(instance);
     }
 
     fn create_window(
@@ -595,5 +621,71 @@ impl WindowSystem for WinitSystem {
                 instance.clipboard_changed(selection, state);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod preference_tests {
+    use super::*;
+    use crate::abi::OutPtr;
+    use crate::abi::api::InstanceApi;
+    use crate::abi::events::Event;
+    use crate::headless::HeadlessSystem;
+    use crate::host::tests::Rig;
+    use crate::{GuiLimits, GuiPolicy};
+
+    #[test]
+    fn cached_native_motion_suppresses_unrelated_accessibility_notifications() {
+        let (_main, windows) = GuiMainThread::new();
+        let rig = Rig::on(
+            Arc::new(windows.clone()),
+            HeadlessSystem::default(),
+            GuiPolicy::default(),
+            GuiLimits::default(),
+        );
+        let preference = if windows.reduced_motion() == ReducedMotion::Reduce {
+            ReducedMotion::NoPreference
+        } else {
+            ReducedMotion::Reduce
+        };
+        windows.shared.update_reduced_motion(preference);
+        assert!(
+            matches!(rig.events().as_slice(), [(_, Event::AppReducedMotionChanged(event))]
+            if event.preference == preference)
+        );
+        // A guest thread reads the cache, even if the actual system setting
+        // differs. No AppKit access or native window is needed for the read.
+        let guest_windows = windows.clone();
+        assert_eq!(
+            std::thread::spawn(move || guest_windows.reduced_motion())
+                .join()
+                .unwrap(),
+            preference
+        );
+        assert_eq!(
+            rig.call(|host, cx| host.instance_get_reduced_motion(
+                cx,
+                rig.instance,
+                OutPtr::new(1024)
+            ))
+            .unwrap(),
+            Status::Success
+        );
+        assert_eq!(rig.read_u32(1024), preference as u32);
+
+        // Other accessibility settings post the same workspace notification.
+        // Repeated callbacks carrying an unchanged motion value stay quiet.
+        for _ in 0..8 {
+            windows.shared.update_reduced_motion(preference);
+        }
+        assert!(rig.events().is_empty());
+        windows.shared.update_reduced_motion(ReducedMotion::Unknown);
+        assert!(
+            matches!(rig.events().as_slice(), [(_, Event::AppReducedMotionChanged(event))]
+            if event.preference == ReducedMotion::Unknown)
+        );
+        assert_eq!(windows.reduced_motion(), ReducedMotion::Unknown);
+        rig.scope.close();
+        assert!(windows.shared.instances().is_empty());
     }
 }

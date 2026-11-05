@@ -409,14 +409,7 @@ impl App {
             let shared = Arc::downgrade(&shared);
             move |preference| {
                 if let Some(shared) = shared.upgrade() {
-                    let instances = {
-                        let mut instances = lock(&shared.instances);
-                        instances.retain(|instance| !instance.is_closed());
-                        instances.clone()
-                    };
-                    for instance in instances {
-                        instance.reduced_motion_changed(preference);
-                    }
+                    shared.update_reduced_motion(preference);
                 }
             }
         });
@@ -968,9 +961,7 @@ impl App {
     }
 
     fn instances(&self) -> Vec<InstanceSink> {
-        let mut instances = lock(&self.shared.instances);
-        instances.retain(|instance| !instance.is_closed());
-        instances.clone()
+        self.shared.instances().clone()
     }
 }
 
