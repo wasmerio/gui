@@ -212,6 +212,7 @@ impl Script {
                 .steps
                 .iter()
                 .any(|step| matches!(step, Step::Screenshot(_))),
+            capture_on_request: false,
             targets: options.targets.clone(),
             top_level: options.top_level.unwrap_or(default.top_level),
             theme: match options.theme.as_deref() {

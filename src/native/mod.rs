@@ -28,6 +28,8 @@ mod app;
 #[cfg(feature = "clipboard")]
 mod clipboard;
 mod convert;
+#[cfg(all(target_os = "macos", feature = "display-link"))]
+mod display_link;
 mod icon;
 mod preferences;
 #[rustfmt::skip]
@@ -166,6 +168,8 @@ enum Link {
 
 struct Shared {
     options: NativeOptions,
+    #[cfg(all(target_os = "macos", feature = "display-link"))]
+    display_link: bool,
     started: Instant,
     link: Mutex<Link>,
     /// Signalled when `link` changes.
@@ -300,8 +304,24 @@ impl GuiMainThread {
     }
 
     pub fn with_options(options: NativeOptions) -> (GuiMainThread, WinitSystem) {
+        Self::create(options, false)
+    }
+
+    /// Pace guest redraw requests with the window's display link on macOS 14
+    /// and later. When the display link is unavailable, use the usual
+    /// monitor-rate timer.
+    #[cfg(feature = "display-link")]
+    pub fn with_display_link(options: NativeOptions) -> (GuiMainThread, WinitSystem) {
+        Self::create(options, true)
+    }
+
+    fn create(options: NativeOptions, display_link: bool) -> (GuiMainThread, WinitSystem) {
+        #[cfg(not(all(target_os = "macos", feature = "display-link")))]
+        let _ = display_link;
         let shared = Arc::new(Shared {
             options,
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            display_link,
             started: Instant::now(),
             link: Mutex::new(Link::Waiting),
             changed: Condvar::new(),

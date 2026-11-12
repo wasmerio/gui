@@ -10,7 +10,7 @@
 //! else, and what the tests of this crate run on, which makes it the
 //! reference for how events are ordered.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -83,6 +83,11 @@ pub struct HeadlessOptions {
     /// [`HeadlessWindow::last_frame`]. Reading a frame back from the GPU
     /// costs a copy, so they are only counted unless this is on.
     pub capture_frames: bool,
+    /// With [`HeadlessOptions::capture_frames`]: capture only while someone
+    /// holds a [`HeadlessWindow::request_capture`], instead of every frame.
+    /// For a tool that wants a screenshot now and then of a page that draws
+    /// sixty frames a second.
+    pub capture_on_request: bool,
 }
 
 impl Default for HeadlessOptions {
@@ -102,6 +107,7 @@ impl Default for HeadlessOptions {
             clock: HeadlessClock::Real,
             redraws: HeadlessRedraws::Immediate,
             capture_frames: false,
+            capture_on_request: false,
         }
     }
 }
@@ -384,11 +390,36 @@ struct WindowState {
     requests: Mutex<Vec<String>>,
     /// What the guest drew on it.
     frames: Mutex<Frames>,
+    /// Outstanding [`HeadlessWindow::request_capture`]s.
+    capture_requests: AtomicUsize,
     /// Asked to redraw, and waiting for the display to refresh.
     redraw_wanted: AtomicBool,
 }
 
 impl WindowState {
+    /// Whether a frame presented now is to be captured.
+    fn captures(&self) -> bool {
+        self.system.upgrade().is_some_and(|system| {
+            system.options.capture_frames
+                && (!system.options.capture_on_request
+                    || self.capture_requests.load(Ordering::Acquire) > 0)
+        })
+    }
+
+    /// Records a presented frame. Capturing on request, a frame without
+    /// pixels (one nobody asked for) leaves the last captured one in place.
+    fn present(&self, frame: PresentedFrame) {
+        let on_request = self.system.upgrade().is_some_and(|system| {
+            system.options.capture_frames && system.options.capture_on_request
+        });
+        let mut frames = lock(&self.frames);
+        frames.presented += 1;
+        if on_request && frame.pixels.is_empty() && frames.last.is_some() {
+            return;
+        }
+        frames.last = Some(frame);
+    }
+
     fn note(&self, request: String) {
         lock(&self.requests).push(request);
     }
@@ -638,13 +669,8 @@ impl HostWindow for Window {
             }
             WindowChange::Pixels(frame) => {
                 window.note(format!("pixels {}x{}", frame.width, frame.height));
-                let capture = window
-                    .system
-                    .upgrade()
-                    .is_some_and(|system| system.options.capture_frames);
-                let mut frames = lock(&window.frames);
-                frames.presented += 1;
-                frames.last = Some(PresentedFrame {
+                let capture = window.captures();
+                window.present(PresentedFrame {
                     width: frame.width,
                     height: frame.height,
                     bgra: false,
@@ -667,6 +693,19 @@ impl Drop for Window {
                 .windows
                 .retain(|window| !Arc::ptr_eq(window, &self.0));
         }
+    }
+}
+
+/// Frames presented to a window are captured while this lives; see
+/// [`HeadlessWindow::request_capture`].
+#[must_use = "dropping the guard ends the capture request"]
+pub struct CaptureRequest {
+    state: Arc<WindowState>,
+}
+
+impl Drop for CaptureRequest {
+    fn drop(&mut self) {
+        self.state.capture_requests.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -717,16 +756,32 @@ impl HeadlessWindow {
         lock(&self.state.frames).presented
     }
 
-    /// The frame the guest presented last, if the system captures frames.
+    /// The frame the guest presented last, if the system captures frames;
+    /// capturing on request, the last one presented while a request was out.
     pub fn last_frame(&self) -> Option<PresentedFrame> {
         lock(&self.state.frames).last.clone()
     }
 
     /// A guest presented a frame. For whatever draws on the window.
     pub fn present(&self, frame: PresentedFrame) {
-        let mut frames = lock(&self.state.frames);
-        frames.presented += 1;
-        frames.last = Some(frame);
+        self.state.present(frame);
+    }
+
+    /// Whether a frame presented now is captured: with
+    /// [`HeadlessOptions::capture_frames`], always, or while a capture is
+    /// requested if [`HeadlessOptions::capture_on_request`].
+    pub fn captures(&self) -> bool {
+        self.state.captures()
+    }
+
+    /// Captures the frames presented while the returned guard lives (with
+    /// [`HeadlessOptions::capture_on_request`]). Ask before asking the guest
+    /// for the frame: a frame presented first is not captured.
+    pub fn request_capture(&self) -> CaptureRequest {
+        self.state.capture_requests.fetch_add(1, Ordering::AcqRel);
+        CaptureRequest {
+            state: Arc::clone(&self.state),
+        }
     }
 
     /// Reports anything a window system can, in its own words.
@@ -1131,6 +1186,7 @@ impl WindowSystem for HeadlessSystem {
             model: Mutex::new(model),
             requests: Mutex::new(Vec::new()),
             frames: Mutex::new(Frames::default()),
+            capture_requests: AtomicUsize::new(0),
             redraw_wanted: AtomicBool::new(false),
         });
         state.windows.push(Arc::clone(&window));

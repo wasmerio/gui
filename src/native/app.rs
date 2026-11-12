@@ -25,6 +25,9 @@ type DragPress = (Instant, (f64, f64), Option<(i32, i32)>);
 
 /// One window, as the loop keeps it.
 struct Entry {
+    // Invalidate the display link before releasing the window.
+    #[cfg(all(target_os = "macos", feature = "display-link"))]
+    display_link: Option<super::display_link::DisplayLink>,
     key: WindowKey,
     window: Arc<Window>,
     /// The name a surface for the window is created with.
@@ -575,9 +578,16 @@ impl App {
         let size = window.inner_size();
         let scale_factor = window.scale_factor();
         let selector = new_surface_selector();
+        let window = Arc::new(window);
         let mut entry = Entry {
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            display_link: if self.shared.display_link {
+                super::display_link::DisplayLink::new(&window)
+            } else {
+                None
+            },
             key,
-            window: Arc::new(window),
+            window,
             selector: selector.clone(),
             size: Arc::default(),
             seen_said: Arc::default(),
@@ -725,6 +735,10 @@ impl App {
                 let asked = |flag: u64| (mask & flag != 0).then_some(values & flag != 0);
                 if let Some(visible) = asked(window_flags::VISIBLE) {
                     entry.shown = visible;
+                    #[cfg(all(target_os = "macos", feature = "display-link"))]
+                    if !visible && let Some(link) = &entry.display_link {
+                        link.cancel();
+                    }
                     window.set_visible(visible);
                 }
                 if let Some(resizable) = asked(window_flags::RESIZABLE) {
@@ -781,6 +795,12 @@ impl App {
             }),
             // A window out of sight is told to redraw when it is seen again.
             WindowChange::Redraw { .. } if entry.unseen => {}
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            WindowChange::Redraw { .. } if entry.display_link.is_some() => {
+                if let Some(link) = entry.display_link.as_ref().filter(|_| entry.shown) {
+                    link.request(frame_interval(&window));
+                }
+            }
             // Already waiting for the display: one redraw answers both.
             WindowChange::Redraw { .. } if entry.redraw_due.is_some() => {}
             WindowChange::Redraw { .. } => {
@@ -930,6 +950,10 @@ impl App {
                         && entry.seen_said.load(std::sync::atomic::Ordering::Acquire) == said
                     {
                         entry.unseen = true;
+                        #[cfg(all(target_os = "macos", feature = "display-link"))]
+                        if let Some(link) = &entry.display_link {
+                            link.cancel();
+                        }
                         entry
                             .sink
                             .flags(window_flags::OCCLUDED, window_flags::OCCLUDED);
@@ -1081,6 +1105,10 @@ impl ApplicationHandler<()> for App {
                     if occluded { window_flags::OCCLUDED } else { 0 },
                 );
                 entry.unseen = occluded;
+                #[cfg(all(target_os = "macos", feature = "display-link"))]
+                if occluded && let Some(link) = &entry.display_link {
+                    link.cancel();
+                }
                 if !occluded {
                     // What was drawn while nobody could see it went nowhere,
                     // and a guest that draws only when asked is waiting.

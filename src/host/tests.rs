@@ -427,6 +427,76 @@ fn a_frame_the_guest_drew_is_what_the_window_shows() {
 }
 
 #[test]
+fn headless_capture_requests_keep_pixels_until_the_next_capture() {
+    let rig = Rig::with(
+        HeadlessOptions {
+            capture_frames: true,
+            capture_on_request: true,
+            ..manual()
+        },
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    let (window, user) = rig.window();
+    let pixels = frame(1, 1);
+
+    assert!(!user.captures());
+    assert_eq!(
+        present(&rig, window, pixels.clone(), &[0, 0, 0, 255], &[]),
+        Status::Success
+    );
+    assert!(user.last_frame().expect("frame metadata").pixels.is_empty());
+
+    let first = user.request_capture();
+    let second = user.request_capture();
+    drop(first);
+    assert!(user.captures());
+    assert_eq!(
+        present(&rig, window, pixels.clone(), &[0, 0, 255, 255], &[]),
+        Status::Success
+    );
+    drop(second);
+    assert!(!user.captures());
+
+    assert_eq!(
+        present(&rig, window, pixels, &[255, 0, 0, 255], &[]),
+        Status::Success
+    );
+    assert_eq!(user.frames_presented(), 3);
+    assert_eq!(
+        user.last_frame().expect("captured frame").pixels,
+        [255, 0, 0, 255]
+    );
+}
+
+#[cfg(feature = "webgpu")]
+#[test]
+fn headless_surface_checks_whether_capture_is_requested_on_each_frame() {
+    use wasmer_webgpu::surface::SurfaceTarget;
+
+    let rig = Rig::with(
+        HeadlessOptions {
+            capture_frames: true,
+            capture_on_request: true,
+            ..manual()
+        },
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    );
+    let (_, user) = rig.window();
+    let surfaces = rig.system.surfaces(None);
+    let Some(SurfaceTarget::Headless(sink)) = surfaces.open(user.surface_selector()) else {
+        panic!("expected the headless window's surface");
+    };
+
+    assert!(!sink.wants_pixels());
+    let capture = user.request_capture();
+    assert!(sink.wants_pixels());
+    drop(capture);
+    assert!(!sink.wants_pixels());
+}
+
+#[test]
 fn a_frame_that_does_not_add_up_is_refused() {
     let rig = Rig::new();
     let (window, user) = rig.window();

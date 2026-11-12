@@ -25,10 +25,7 @@ struct HeadlessSurfaces {
 impl SurfaceProvider for HeadlessSurfaces {
     fn open(&self, selector: &str) -> Option<SurfaceTarget> {
         match self.system.window_for_selector(selector) {
-            Some(window) => Some(SurfaceTarget::Headless(Arc::new(HeadlessFrames {
-                capture: self.system.options().capture_frames,
-                window,
-            }))),
+            Some(window) => Some(SurfaceTarget::Headless(Arc::new(HeadlessFrames { window }))),
             None => self.fallback.as_ref()?.open(selector),
         }
     }
@@ -37,7 +34,6 @@ impl SurfaceProvider for HeadlessSurfaces {
 /// A headless window, as something to present frames to.
 struct HeadlessFrames {
     window: HeadlessWindow,
-    capture: bool,
 }
 
 impl FrameSink for HeadlessFrames {
@@ -46,7 +42,7 @@ impl FrameSink for HeadlessFrames {
     }
 
     fn wants_pixels(&self) -> bool {
-        self.capture
+        self.window.captures()
     }
 
     fn present(&self, frame: Frame<'_>) {
