@@ -679,7 +679,6 @@ impl WindowSink {
         self.redraw_with_reason(event_flags::EXPOSURE);
     }
 
-    #[cfg(feature = "winit")]
     pub(crate) fn discard_pending_redraw(&self) {
         self.window.redraw_slot().take();
     }

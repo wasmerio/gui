@@ -52,6 +52,22 @@ use winit::event_loop::{EventLoop, EventLoopProxy};
 use crate::abi::AbiEnum;
 use crate::system::*;
 
+#[cfg(target_os = "macos")]
+fn appkit_window(
+    window: &winit::window::Window,
+) -> Option<objc2::rc::Retained<objc2_app_kit::NSWindow>> {
+    use objc2_app_kit::NSView;
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+
+    let RawWindowHandle::AppKit(handle) = window.window_handle().ok()?.as_raw() else {
+        return None;
+    };
+    // SAFETY: winit's content view is alive while the window is, and this
+    // runs on the main thread that owns it.
+    let view = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
+    view.window()
+}
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()

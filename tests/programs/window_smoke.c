@@ -137,10 +137,7 @@ int main(void) {
 
     wguiWindowDestroy(window);
 
-    WGUIInstanceInfo info = WGUI_INSTANCE_INFO_INIT;
-    OK(wguiInstanceGetInfo(instance, &info));
-    if (info.hostKind == WGUIHostKind_Desktop)
-        check_hidden_redraw(descriptor);
+    check_hidden_redraw(descriptor);
 
     wguiInstanceDestroy(instance);
     printf("done\n");

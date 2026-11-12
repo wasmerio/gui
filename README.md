@@ -166,8 +166,9 @@ does the same for an asynchronous `main`. On macOS 14 and later, enable the
 `display-link` feature and use `GuiMainThread::with_display_link` to pace
 guest redraw requests with the window's AppKit display link. The timer
 answers a redraw if AppKit misses three refresh intervals or the display
-link is unavailable. Hidden native windows report occlusion and resume
-redrawing when shown.
+link is unavailable. Native and headless hosts report hidden windows as
+occluded. Show the window before waiting for a redraw. The host queues an
+exposure once the window can be seen.
 
 A window system of your own (a stream to a remote viewer, say) implements
 `wasmer_gui::system::WindowSystem`. The headless one is the smallest example,

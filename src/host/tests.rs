@@ -639,6 +639,76 @@ fn a_window_asked_to_redraw_is_told_when_the_display_refreshes() {
 }
 
 #[test]
+fn headless_windows_redraw_only_while_shown() {
+    use crate::headless::HeadlessRedraws;
+
+    for redraws in [HeadlessRedraws::Immediate, HeadlessRedraws::Paced] {
+        let rig = Rig::with(
+            HeadlessOptions {
+                redraws,
+                ..manual()
+            },
+            GuiPolicy::default(),
+            GuiLimits::default(),
+        );
+        let window = rig
+            .host()
+            .create_window(rig.instance, Some(&WindowDescriptor::default()))
+            .expect("an initially hidden window");
+        assert_eq!(rig.names(), ["WindowResized"]);
+
+        let state = rig.host().window(window).expect("alive");
+        let visibility = window_flags::VISIBLE | window_flags::OCCLUDED;
+        let flags = || state.shared.snapshot.read().flags & visibility;
+        let request_redraw = || {
+            assert_eq!(
+                rig.call(|host, cx| host.window_request_redraw(cx, window)),
+                Ok(Status::Success)
+            );
+        };
+        let show = |visible| {
+            assert_eq!(
+                rig.call(|host, cx| {
+                    host.window_set_flags(
+                        cx,
+                        window,
+                        window_flags::VISIBLE,
+                        if visible { window_flags::VISIBLE } else { 0 },
+                        OutPtr::new(0),
+                    )
+                }),
+                Ok(Status::Success)
+            );
+        };
+
+        assert_eq!(flags(), window_flags::OCCLUDED);
+        request_redraw();
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+
+        show(true);
+        assert_eq!(flags(), window_flags::VISIBLE);
+        assert_eq!(rig.names(), ["WindowFlagsChanged", "WindowRedrawRequested"]);
+        // Showing an already visible window is not a second exposure.
+        show(true);
+        assert!(rig.events().is_empty());
+
+        // Hide before the redraw is read or the paced refresh arrives.
+        request_redraw();
+        show(false);
+        assert_eq!(flags(), window_flags::OCCLUDED);
+        assert_eq!(rig.names(), ["WindowFlagsChanged"]);
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+
+        show(true);
+        assert_eq!(rig.names(), ["WindowFlagsChanged", "WindowRedrawRequested"]);
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+    }
+}
+
+#[test]
 fn a_frame_can_be_looked_at_as_a_picture() {
     let frame = crate::headless::PresentedFrame {
         width: 2,

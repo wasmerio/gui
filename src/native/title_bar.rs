@@ -121,23 +121,11 @@ pub(super) use mac::{click_count, double_click_action, layout_controls};
 
 #[cfg(target_os = "macos")]
 mod mac {
-    use objc2::MainThreadMarker;
-    use objc2::rc::Retained;
-    use objc2_app_kit::{NSApplication, NSView, NSWindow, NSWindowButton};
-    use objc2_foundation::{NSPoint, NSRect, NSString, NSUserDefaults};
-    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
-
+    use super::super::appkit_window;
     use super::DoubleClick;
-
-    fn ns_window(window: &winit::window::Window) -> Option<Retained<NSWindow>> {
-        let RawWindowHandle::AppKit(handle) = window.window_handle().ok()?.as_raw() else {
-            return None;
-        };
-        // SAFETY: winit's handle is its window's content view, alive while
-        // the window is, and this runs on the main thread that owns it.
-        let view: &NSView = unsafe { handle.ns_view.cast::<NSView>().as_ref() };
-        view.window()
-    }
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSWindowButton};
+    use objc2_foundation::{NSPoint, NSRect, NSString, NSUserDefaults};
 
     /// Where the traffic lights are, in the content view's points from its
     /// top-left corner, and the title bar they were placed in.
@@ -159,7 +147,7 @@ mod mac {
         window: &winit::window::Window,
         height: f64,
     ) -> Option<Controls> {
-        let ns_window = ns_window(window)?;
+        let ns_window = appkit_window(window)?;
         let buttons: Vec<_> = [
             NSWindowButton::CloseButton,
             NSWindowButton::MiniaturizeButton,

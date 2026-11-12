@@ -168,8 +168,14 @@ impl Inner {
     fn refresh(&self) {
         let windows = lock(&self.state).windows.clone();
         for window in windows {
+            if !window.redraw_wanted.load(Ordering::Acquire) {
+                continue;
+            }
+            // Check again under the sink lock: hiding the window cancels
+            // its pending redraw under this same lock.
+            let mut sink = lock(&window.sink);
             if window.redraw_wanted.swap(false, Ordering::AcqRel) {
-                lock(&window.sink).redraw_requested();
+                sink.redraw_requested();
             }
         }
     }
@@ -539,11 +545,28 @@ impl HostWindow for Window {
             }
             WindowChange::Flags { mask, values } => {
                 window.note(format!("flags {values:#x} of {mask:#x}"));
-                {
+                let mut sink = lock(&window.sink);
+                let was_shown = {
                     let mut model = lock(&window.model);
+                    let was_shown = model.flags & window_flags::VISIBLE != 0;
                     model.flags = (model.flags & !mask) | (values & mask);
+                    was_shown
+                };
+                if mask & window_flags::VISIBLE == 0 {
+                    sink.flags(mask, values);
+                } else if values & window_flags::VISIBLE != 0 {
+                    sink.flags(mask | window_flags::OCCLUDED, values);
+                    if !was_shown {
+                        sink.redraw_requested();
+                    }
+                } else {
+                    window.redraw_wanted.store(false, Ordering::Release);
+                    sink.discard_pending_redraw();
+                    sink.flags(
+                        mask | window_flags::OCCLUDED,
+                        values | window_flags::OCCLUDED,
+                    );
                 }
-                lock(&window.sink).flags(mask, values);
             }
             WindowChange::Fullscreen { options, request } => {
                 let mode = options.as_ref().map_or(FullscreenMode::None, |o| o.mode);
@@ -582,12 +605,19 @@ impl HostWindow for Window {
             WindowChange::Attention(level) => window.note(format!("attention {level:?}")),
             WindowChange::Redraw { .. } => {
                 window.note("redraw".to_owned());
+                let mut sink = lock(&window.sink);
+                if lock(&window.model).flags & window_flags::VISIBLE == 0 {
+                    return;
+                }
                 match window.system.upgrade() {
                     Some(system) if system.options.redraws == HeadlessRedraws::Paced => {
                         window.redraw_wanted.store(true, Ordering::Release);
+                        // If no display thread can be started, this can
+                        // call refresh synchronously.
+                        drop(sink);
                         system.redraw_wanted();
                     }
-                    _ => lock(&window.sink).redraw_requested(),
+                    _ => sink.redraw_requested(),
                 }
             }
             WindowChange::CursorShape(shape) => {
@@ -1186,7 +1216,12 @@ impl WindowSystem for HeadlessSystem {
 
         sink.display_changed(DISPLAY);
         sink.theme_changed(options.theme);
-        sink.flags(window_flags::REQUESTABLE, attributes.flags);
+        let flags = if attributes.flags & window_flags::VISIBLE != 0 {
+            attributes.flags
+        } else {
+            attributes.flags | window_flags::OCCLUDED
+        };
+        sink.flags(window_flags::REQUESTABLE | window_flags::OCCLUDED, flags);
         if let Some((x, y)) = attributes.position {
             let position = |value: i32| {
                 if attributes.logical_units {

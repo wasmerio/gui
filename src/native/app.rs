@@ -23,6 +23,32 @@ use crate::system::*;
 /// was then.
 type DragPress = (Instant, (f64, f64), Option<(i32, i32)>);
 
+#[derive(Default)]
+struct Visibility {
+    /// Whether the guest asked for the window to be shown.
+    shown: bool,
+    /// Retain platform reports even while the guest has hidden the window.
+    platform_occluded: bool,
+    /// The surface's report is provisional until the platform reports again.
+    surface_unseen: bool,
+}
+
+impl Visibility {
+    fn is_occluded(&self) -> bool {
+        !self.shown || self.platform_occluded || self.surface_unseen
+    }
+
+    fn set_shown(&mut self, shown: bool) {
+        self.shown = shown;
+        self.surface_unseen = false;
+    }
+
+    fn report_platform(&mut self, occluded: bool) {
+        self.platform_occluded = occluded;
+        self.surface_unseen = false;
+    }
+}
+
 /// One window, as the loop keeps it.
 struct Entry {
     // Invalidate the display link before releasing the window.
@@ -45,11 +71,7 @@ struct Entry {
     /// The modifiers last reported for the window.
     modifiers: u32,
     focused: bool,
-    /// Whether the guest has the window shown. That is what it is told, not
-    /// what the window system says at the moment: X11 puts a window on
-    /// screen when it gets to it, which is after the window was made, and
-    /// whether anything of a window can be seen is another flag.
-    shown: bool,
+    visibility: Visibility,
     /// What the guest wants of the cursor, and whether it has it right now.
     grab: CursorGrab,
     grabbed: bool,
@@ -61,8 +83,6 @@ struct Entry {
     /// timer-paced request is due.
     redraw_tick: Option<Instant>,
     redraw_due: Option<Instant>,
-    /// Occlusion reported for a shown window by the platform or GPU.
-    unseen: bool,
     /// What the window shows when its guest draws it without a GPU.
     #[cfg(feature = "pixels")]
     painted: Option<super::pixels::Painted>,
@@ -104,7 +124,7 @@ struct Entry {
 
 impl Entry {
     fn is_occluded(&self) -> bool {
-        !self.shown || self.unseen
+        self.visibility.is_occluded()
     }
 
     fn cancel_redraw(&mut self) {
@@ -121,20 +141,20 @@ impl Entry {
         self.sink.redraw_requested();
     }
 
-    fn set_unseen(&mut self, unseen: bool) {
-        if !self.shown || self.unseen == unseen {
+    fn report_occlusion_change(&mut self, was_occluded: bool) {
+        let occluded = self.is_occluded();
+        if occluded == was_occluded {
             return;
         }
-        self.unseen = unseen;
-        if unseen {
+        if occluded {
             self.cancel_redraw();
             self.sink.discard_pending_redraw();
         }
         self.sink.flags(
             window_flags::OCCLUDED,
-            if unseen { window_flags::OCCLUDED } else { 0 },
+            if occluded { window_flags::OCCLUDED } else { 0 },
         );
-        if !unseen {
+        if !occluded {
             self.expose();
         }
     }
@@ -172,7 +192,7 @@ impl Entry {
                 flags |= flag;
             }
         };
-        set(self.shown, window_flags::VISIBLE);
+        set(self.visibility.shown, window_flags::VISIBLE);
         set(self.is_occluded(), window_flags::OCCLUDED);
         set(window.is_resizable(), window_flags::RESIZABLE);
         set(window.is_decorated(), window_flags::DECORATED);
@@ -645,14 +665,16 @@ impl App {
             cursor: (0.0, 0.0),
             modifiers: 0,
             focused: false,
-            shown: flag(window_flags::VISIBLE),
+            visibility: Visibility {
+                shown: flag(window_flags::VISIBLE),
+                ..Visibility::default()
+            },
             grab: CursorGrab::None,
             grabbed: false,
             cursor_visible: true,
             close_asked: None,
             redraw_tick: None,
             redraw_due: None,
-            unseen: false,
             #[cfg(feature = "pixels")]
             painted: None,
             title_bar,
@@ -783,16 +805,15 @@ impl App {
             }
             WindowChange::Flags { mask, values } => {
                 let asked = |flag: u64| (mask & flag != 0).then_some(values & flag != 0);
-                let was_shown = entry.shown;
+                let was_shown = entry.visibility.shown;
                 if let Some(visible) = asked(window_flags::VISIBLE) {
-                    entry.shown = visible;
                     if visible != was_shown {
+                        entry.visibility.set_shown(visible);
                         // Start a new visibility observation. A GPU report
                         // from before this change cannot describe the new state.
                         entry
                             .seen_said
                             .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                        entry.unseen = false;
                         if !visible {
                             entry.cancel_redraw();
                             entry.sink.discard_pending_redraw();
@@ -827,11 +848,13 @@ impl App {
                 // The level is not something winit reports back.
                 let levels = window_flags::ALWAYS_ON_TOP | window_flags::ALWAYS_ON_BOTTOM;
                 entry.sink.flags(mask & levels, values);
+                let showing = !was_shown && entry.visibility.shown;
+                if showing && let Some(occluded) = occluded_on_show(&window) {
+                    entry.visibility.report_platform(occluded);
+                }
                 entry.report_state();
                 entry.report_title_bar();
-                if !was_shown && entry.shown {
-                    // A guest waiting to draw can resume even on backends
-                    // that do not report occlusion changes.
+                if showing && !entry.is_occluded() {
                     entry.expose();
                 }
             }
@@ -1003,9 +1026,12 @@ impl App {
                     // Believed only while the window system has said nothing
                     // since: what it says is newer, and is what stands.
                     if let Some(entry) = self.entry(window)
+                        && entry.visibility.shown
                         && entry.seen_said.load(std::sync::atomic::Ordering::Acquire) == said
                     {
-                        entry.set_unseen(true);
+                        let was_occluded = entry.is_occluded();
+                        entry.visibility.surface_unseen = true;
+                        entry.report_occlusion_change(was_occluded);
                     }
                 }
                 #[cfg(feature = "webgpu")]
@@ -1151,7 +1177,12 @@ impl ApplicationHandler<()> for App {
                 entry
                     .seen_said
                     .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                entry.set_unseen(occluded);
+                // AppKit's queued notification may predate a hide/show.
+                #[cfg(target_os = "macos")]
+                let occluded = appkit_occlusion(&entry.window).unwrap_or(occluded);
+                let was_occluded = entry.is_occluded();
+                entry.visibility.report_platform(occluded);
+                entry.report_occlusion_change(was_occluded);
             }
             WindowEvent::ThemeChanged(theme) => {
                 entry.sink.theme_changed(convert::theme(Some(theme)));
@@ -1345,6 +1376,33 @@ impl ApplicationHandler<()> for App {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn occluded_on_show(window: &Window) -> Option<bool> {
+    appkit_occlusion(window)
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_occlusion(window: &Window) -> Option<bool> {
+    use objc2_app_kit::NSWindowOcclusionState;
+    let window = super::appkit_window(window)?;
+    Some(
+        !window
+            .occlusionState()
+            .contains(NSWindowOcclusionState::Visible),
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn occluded_on_show(window: &Window) -> Option<bool> {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().ok()?.as_raw() {
+        // Mapping is asynchronous. VisibilityNotify reports even a window
+        // mapped fully covered, so wait for that report before exposing it.
+        RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => Some(true),
+        _ => None,
+    }
+}
+
 /// How long the display the window is on takes for a frame: 60 a second
 /// where it does not say.
 fn frame_interval(window: &Window) -> Duration {
@@ -1394,6 +1452,30 @@ impl Drop for Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn showing_preserves_platform_occlusion_until_exposed() {
+        let mut visibility = Visibility::default();
+        visibility.report_platform(true);
+        visibility.set_shown(true);
+        assert!(visibility.is_occluded());
+        visibility.report_platform(false);
+        assert!(!visibility.is_occluded());
+    }
+
+    #[test]
+    fn showing_discards_provisional_surface_occlusion() {
+        let mut visibility = Visibility {
+            shown: true,
+            surface_unseen: true,
+            ..Visibility::default()
+        };
+        assert!(visibility.is_occluded());
+        visibility.set_shown(false);
+        assert!(visibility.is_occluded());
+        visibility.set_shown(true);
+        assert!(!visibility.is_occluded());
+    }
 
     #[test]
     fn redraws_keep_to_the_refreshes_of_the_display() {
