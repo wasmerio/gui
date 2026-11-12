@@ -82,6 +82,20 @@ int main(void) {
     printf("asked to draw\n");
 
     wguiWindowDestroy(window);
+
+    // A guest can draw its first frame before showing its window.
+    descriptor.flags &= ~WGUIWindowFlags_Visible;
+    OK(wguiInstanceCreateWindow(instance, &descriptor, &window));
+    CHECK(expect(WGUIEventType_WindowResized)->window == window);
+    // The first event can be an exposure; the next request still needs a reply.
+    for (int request = 0; request < 2; request++) {
+        OK(wguiWindowRequestRedraw(window));
+        CHECK(expect(WGUIEventType_WindowRedrawRequested)->window == window);
+    }
+    OK(wguiWindowGetState(window, &state));
+    CHECK(!(state.flags & WGUIWindowFlags_Visible));
+    wguiWindowDestroy(window);
+
     wguiInstanceDestroy(instance);
     printf("done\n");
     return 0;

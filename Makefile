@@ -63,7 +63,7 @@ fmt:
 
 lint:
 	$(CARGO) clippy --features cli --all-targets -- -D warnings
-	$(CARGO) clippy --features cli,winit,clipboard,webgpu,pixels --all-targets -- -D warnings
+	$(CARGO) clippy --features cli,display-link,clipboard,webgpu,pixels --all-targets -- -D warnings
 
 ## The test programs: tests/programs/out/*.wasm
 programs: $(PROGRAMS)
@@ -113,12 +113,12 @@ test-loom:
 ## Windows drawn on with WebGPU, on the headless host. Needs a GPU adapter;
 ## WEBGPU_TEST_FALLBACK_ADAPTER=1 asks for a software one.
 test-gpu: gpu-programs examples
-	$(CARGO) test --features cli,webgpu --test gpu_tests
+	$(CARGO) test --features cli,webgpu --lib --test gpu_tests
 
 ## The same programs in real windows. They open on the screen for a moment,
 ## behind what you are working in; under CI, on a virtual display.
 test-windows: programs gpu-programs
-	WGUI_TEST_WINDOWS=1 $(CARGO) test --features cli,winit,webgpu,pixels --test native_windows
+	WGUI_TEST_WINDOWS=1 $(CARGO) test --features cli,display-link,webgpu,pixels --test native_windows
 
 ## The page half (js/gui_page.js) in the installed Chrome, with a core that
 ## writes down what it is told.

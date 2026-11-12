@@ -2,7 +2,7 @@
 
 use std::cell::Cell;
 use std::sync::{Arc, Weak};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use objc2::rc::Retained;
 use objc2::{DefinedClass, MainThreadMarker, MainThreadOnly, define_class, msg_send, sel};
@@ -12,9 +12,31 @@ use objc2_quartz_core::{CADisplayLink, CAFrameRateRange};
 use raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
+#[derive(Default)]
+struct PendingRedraw(Cell<Option<Instant>>);
+
+impl PendingRedraw {
+    fn begin(&self, now: Instant, interval: Duration) -> bool {
+        if self.0.get().is_some() {
+            return false;
+        }
+        // Give AppKit several chances before falling back to a timer.
+        self.0.set(Some(now + interval * 3));
+        true
+    }
+
+    fn deadline(&self) -> Option<Instant> {
+        self.0.get()
+    }
+
+    fn take(&self) -> bool {
+        self.0.take().is_some()
+    }
+}
+
 struct TargetState {
     window: Weak<Window>,
-    requested: Cell<bool>,
+    requested: PendingRedraw,
 }
 
 define_class!(
@@ -34,7 +56,7 @@ define_class!(
         fn fired(&self, link: &CADisplayLink) {
             let state = self.ivars();
             link.setPaused(true);
-            if state.requested.replace(false) && let Some(window) = state.window.upgrade() {
+            if state.requested.take() && let Some(window) = state.window.upgrade() {
                 window.request_redraw();
             }
         }
@@ -62,7 +84,7 @@ impl DisplayLink {
         }
         let target = Target::alloc(mtm).set_ivars(TargetState {
             window: Arc::downgrade(window),
-            requested: Cell::new(false),
+            requested: PendingRedraw::default(),
         });
         // SAFETY: NSObject supplies init and Target implements the selector
         // with CADisplayLink's callback signature.
@@ -89,19 +111,57 @@ impl DisplayLink {
                 preferred: rate,
             });
         }
-        if !self.target.ivars().requested.replace(true) {
+        if self
+            .target
+            .ivars()
+            .requested
+            .begin(Instant::now(), nominal_interval)
+        {
             self.link.setPaused(false);
         }
     }
 
-    pub fn cancel(&self) {
-        self.target.ivars().requested.set(false);
+    pub fn deadline(&self) -> Option<Instant> {
+        self.target.ivars().requested.deadline()
+    }
+
+    /// Pause the link and report whether its redraw still needs an answer.
+    pub fn cancel(&self) -> bool {
+        if !self.target.ivars().requested.take() {
+            return false;
+        }
         self.link.setPaused(true);
+        true
     }
 }
 
 impl Drop for DisplayLink {
     fn drop(&mut self) {
         self.link.invalidate();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn coalescing_does_not_postpone_the_redraw_fallback() {
+        let pending = PendingRedraw::default();
+        let now = Instant::now();
+        let interval = Duration::from_millis(16);
+        let due = now + 3 * interval;
+
+        assert!(pending.begin(now, interval));
+        assert!(!pending.begin(now + interval, interval));
+        assert_eq!(pending.deadline(), Some(due));
+
+        // A display callback, timer fallback or hide consumes this request
+        // once. A late callback finds that it was already answered.
+        assert!(pending.take());
+        assert!(!pending.take());
+        assert_eq!(pending.deadline(), None);
+        assert!(pending.begin(due, interval));
+        assert_eq!(pending.deadline(), Some(due + 3 * interval));
     }
 }

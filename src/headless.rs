@@ -79,15 +79,9 @@ pub struct HeadlessOptions {
     pub clipboard_sync: bool,
     pub clock: HeadlessClock,
     pub redraws: HeadlessRedraws,
-    /// Whether the frames guests present to windows are kept, for
-    /// [`HeadlessWindow::last_frame`]. Reading a frame back from the GPU
-    /// costs a copy, so they are only counted unless this is on.
+    /// Whether [`HeadlessSystem::new`] keeps frame pixels for
+    /// [`HeadlessWindow::last_frame`]. Frames are counted either way.
     pub capture_frames: bool,
-    /// With [`HeadlessOptions::capture_frames`]: capture only while someone
-    /// holds a [`HeadlessWindow::request_capture`], instead of every frame.
-    /// For a tool that wants a screenshot now and then of a page that draws
-    /// sixty frames a second.
-    pub capture_on_request: bool,
 }
 
 impl Default for HeadlessOptions {
@@ -107,7 +101,6 @@ impl Default for HeadlessOptions {
             clock: HeadlessClock::Real,
             redraws: HeadlessRedraws::Immediate,
             capture_frames: false,
-            capture_on_request: false,
         }
     }
 }
@@ -148,6 +141,7 @@ impl State {
 
 struct Inner {
     options: HeadlessOptions,
+    capture_on_request: bool,
     reduced_motion: AtomicU32,
     started: Instant,
     /// Nanoseconds, for the manual clock.
@@ -374,6 +368,8 @@ impl PresentedFrame {
 #[derive(Default)]
 struct Frames {
     presented: u64,
+    /// The presentation number of the most recent frame with pixels.
+    last_capture: u64,
     last: Option<PresentedFrame>,
 }
 
@@ -401,20 +397,22 @@ impl WindowState {
     fn captures(&self) -> bool {
         self.system.upgrade().is_some_and(|system| {
             system.options.capture_frames
-                && (!system.options.capture_on_request
-                    || self.capture_requests.load(Ordering::Acquire) > 0)
+                && (!system.capture_on_request || self.capture_requests.load(Ordering::Acquire) > 0)
         })
     }
 
     /// Records a presented frame. Capturing on request, a frame without
     /// pixels (one nobody asked for) leaves the last captured one in place.
     fn present(&self, frame: PresentedFrame) {
-        let on_request = self.system.upgrade().is_some_and(|system| {
-            system.options.capture_frames && system.options.capture_on_request
-        });
+        let on_request = self
+            .system
+            .upgrade()
+            .is_some_and(|system| system.capture_on_request);
         let mut frames = lock(&self.frames);
         frames.presented += 1;
-        if on_request && frame.pixels.is_empty() && frames.last.is_some() {
+        if !frame.pixels.is_empty() {
+            frames.last_capture = frames.presented;
+        } else if on_request && frames.last_capture != 0 {
             return;
         }
         frames.last = Some(frame);
@@ -701,6 +699,22 @@ impl Drop for Window {
 #[must_use = "dropping the guard ends the capture request"]
 pub struct CaptureRequest {
     state: Arc<WindowState>,
+    presented_before_request: u64,
+}
+
+impl CaptureRequest {
+    /// The latest frame with pixels delivered since this request began.
+    pub fn frame(&self) -> Option<PresentedFrame> {
+        let frames = lock(&self.state.frames);
+        if frames.last_capture <= self.presented_before_request {
+            return None;
+        }
+        frames
+            .last
+            .as_ref()
+            .filter(|frame| !frame.pixels.is_empty())
+            .cloned()
+    }
 }
 
 impl Drop for CaptureRequest {
@@ -756,8 +770,8 @@ impl HeadlessWindow {
         lock(&self.state.frames).presented
     }
 
-    /// The frame the guest presented last, if the system captures frames;
-    /// capturing on request, the last one presented while a request was out.
+    /// The latest presented frame, or the latest frame with pixels when
+    /// capturing on request. Use [`CaptureRequest::frame`] for a fresh capture.
     pub fn last_frame(&self) -> Option<PresentedFrame> {
         lock(&self.state.frames).last.clone()
     }
@@ -767,20 +781,21 @@ impl HeadlessWindow {
         self.state.present(frame);
     }
 
-    /// Whether a frame presented now is captured: with
-    /// [`HeadlessOptions::capture_frames`], always, or while a capture is
-    /// requested if [`HeadlessOptions::capture_on_request`].
+    /// Whether the renderer should include pixels with its next presentation.
     pub fn captures(&self) -> bool {
         self.state.captures()
     }
 
-    /// Captures the frames presented while the returned guard lives (with
-    /// [`HeadlessOptions::capture_on_request`]). Ask before asking the guest
-    /// for the frame: a frame presented first is not captured.
+    /// Enable capture while the guard lives on a system created with
+    /// [`HeadlessSystem::with_capture_on_request`]. Take the guard before
+    /// asking the guest to draw, then read the result with [`CaptureRequest::frame`].
     pub fn request_capture(&self) -> CaptureRequest {
+        // Publish the request and record its baseline before a frame can land.
+        let frames = lock(&self.state.frames);
         self.state.capture_requests.fetch_add(1, Ordering::AcqRel);
         CaptureRequest {
             state: Arc::clone(&self.state),
+            presented_before_request: frames.presented,
         }
     }
 
@@ -854,10 +869,22 @@ impl Default for HeadlessSystem {
 
 impl HeadlessSystem {
     pub fn new(options: HeadlessOptions) -> Self {
+        Self::create(options, false)
+    }
+
+    /// Capture frame pixels only while a [`HeadlessWindow::request_capture`]
+    /// guard is held. This enables [`HeadlessOptions::capture_frames`].
+    pub fn with_capture_on_request(mut options: HeadlessOptions) -> Self {
+        options.capture_frames = true;
+        Self::create(options, true)
+    }
+
+    fn create(options: HeadlessOptions, capture_on_request: bool) -> Self {
         Self {
             inner: Arc::new(Inner {
                 reduced_motion: AtomicU32::new(options.reduced_motion as u32),
                 options,
+                capture_on_request,
                 started: Instant::now(),
                 time: AtomicU64::new(0),
                 next_window: AtomicU64::new(1),

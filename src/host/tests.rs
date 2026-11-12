@@ -426,46 +426,83 @@ fn a_frame_the_guest_drew_is_what_the_window_shows() {
     assert!(rig.events().is_empty());
 }
 
-#[test]
-fn headless_capture_requests_keep_pixels_until_the_next_capture() {
-    let rig = Rig::with(
-        HeadlessOptions {
-            capture_frames: true,
-            capture_on_request: true,
-            ..manual()
-        },
+fn capture_rig() -> Rig {
+    let system = HeadlessSystem::with_capture_on_request(manual());
+    Rig::on(
+        Arc::new(system.clone()),
+        system,
         GuiPolicy::default(),
         GuiLimits::default(),
-    );
+    )
+}
+
+#[test]
+fn headless_capture_tracks_metadata_before_the_first_capture() {
+    let rig = capture_rig();
+    let (window, user) = rig.window();
+    for width in [1, 2] {
+        assert_eq!(
+            present(
+                &rig,
+                window,
+                frame(width, 1),
+                &[0; 8][..width as usize * 4],
+                &[]
+            ),
+            Status::Success
+        );
+        let metadata = user.last_frame().expect("frame metadata");
+        assert_eq!(metadata.width, width);
+        assert!(metadata.pixels.is_empty());
+    }
+    assert_eq!(user.frames_presented(), 2);
+}
+
+#[test]
+fn headless_capture_requests_keep_pixels_until_the_next_capture() {
+    let rig = capture_rig();
     let (window, user) = rig.window();
     let pixels = frame(1, 1);
 
     assert!(!user.captures());
-    assert_eq!(
-        present(&rig, window, pixels.clone(), &[0, 0, 0, 255], &[]),
-        Status::Success
-    );
-    assert!(user.last_frame().expect("frame metadata").pixels.is_empty());
-
     let first = user.request_capture();
-    let second = user.request_capture();
+    let overlapping = user.request_capture();
+    assert!(first.frame().is_none());
     drop(first);
     assert!(user.captures());
     assert_eq!(
         present(&rig, window, pixels.clone(), &[0, 0, 255, 255], &[]),
         Status::Success
     );
-    drop(second);
+    assert_eq!(
+        overlapping.frame().expect("new capture").pixels,
+        [255, 0, 0, 255]
+    );
+    drop(overlapping);
     assert!(!user.captures());
 
+    // A frame started before the request can arrive without a GPU readback.
+    let next = user.request_capture();
+    user.present(crate::headless::PresentedFrame {
+        width: 2,
+        height: 1,
+        bgra: false,
+        pixels: Vec::new(),
+    });
+    assert_eq!(user.frames_presented(), 2);
+    assert!(next.frame().is_none());
+    assert_eq!(
+        user.last_frame().expect("previous capture").pixels,
+        [255, 0, 0, 255]
+    );
     assert_eq!(
         present(&rig, window, pixels, &[255, 0, 0, 255], &[]),
         Status::Success
     );
     assert_eq!(user.frames_presented(), 3);
     assert_eq!(
-        user.last_frame().expect("captured frame").pixels,
-        [255, 0, 0, 255]
+        next.frame().expect("fresh capture").pixels,
+        [0, 0, 255, 255]
     );
 }
 
@@ -474,15 +511,7 @@ fn headless_capture_requests_keep_pixels_until_the_next_capture() {
 fn headless_surface_checks_whether_capture_is_requested_on_each_frame() {
     use wasmer_webgpu::surface::SurfaceTarget;
 
-    let rig = Rig::with(
-        HeadlessOptions {
-            capture_frames: true,
-            capture_on_request: true,
-            ..manual()
-        },
-        GuiPolicy::default(),
-        GuiLimits::default(),
-    );
+    let rig = capture_rig();
     let (_, user) = rig.window();
     let surfaces = rig.system.surfaces(None);
     let Some(SurfaceTarget::Headless(sink)) = surfaces.open(user.surface_selector()) else {

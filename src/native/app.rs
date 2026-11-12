@@ -59,8 +59,8 @@ struct Entry {
     close_asked: Option<(Instant, u64)>,
     /// winit answers a request to redraw at once, however often it is asked
     /// and whether or not anybody can see the window. A guest is to be told
-    /// once per refresh of the display, and not at all while its window
-    /// cannot be seen, so requests are held back here: the refresh the last
+    /// once per refresh of the display, and a shown but occluded window
+    /// redraws when exposed again. Requests are held back here: the refresh the last
     /// request was for, when a request that came before the next one is due,
     /// and whether the window is known to be out of sight.
     redraw_tick: Option<Instant>,
@@ -106,6 +106,24 @@ struct Entry {
 }
 
 impl Entry {
+    fn request_timed_redraw(&mut self) {
+        if self.redraw_due.is_some() {
+            return;
+        }
+        let (tick, held) = next_refresh(
+            self.redraw_tick,
+            Instant::now(),
+            frame_interval(&self.window),
+        );
+        self.redraw_tick = Some(tick);
+        if held {
+            // `about_to_wait` asks when the time has come.
+            self.redraw_due = Some(tick);
+        } else {
+            self.window.request_redraw();
+        }
+    }
+
     /// Tells the guest, and whoever draws on the window, its size.
     fn resized(&mut self, width: u32, height: u32, scale_factor: f64) {
         self.size.store(
@@ -735,11 +753,16 @@ impl App {
                 let asked = |flag: u64| (mask & flag != 0).then_some(values & flag != 0);
                 if let Some(visible) = asked(window_flags::VISIBLE) {
                     entry.shown = visible;
-                    #[cfg(all(target_os = "macos", feature = "display-link"))]
-                    if !visible && let Some(link) = &entry.display_link {
-                        link.cancel();
-                    }
                     window.set_visible(visible);
+                    #[cfg(all(target_os = "macos", feature = "display-link"))]
+                    if !visible
+                        && entry
+                            .display_link
+                            .as_ref()
+                            .is_some_and(|link| link.cancel())
+                    {
+                        entry.request_timed_redraw();
+                    }
                 }
                 if let Some(resizable) = asked(window_flags::RESIZABLE) {
                     window.set_resizable(resizable);
@@ -793,27 +816,20 @@ impl App {
                 AttentionLevel::Informational => Some(UserAttentionType::Informational),
                 AttentionLevel::Critical => Some(UserAttentionType::Critical),
             }),
-            // A window out of sight is told to redraw when it is seen again.
-            WindowChange::Redraw { .. } if entry.unseen => {}
-            #[cfg(all(target_os = "macos", feature = "display-link"))]
-            WindowChange::Redraw { .. } if entry.display_link.is_some() => {
-                if let Some(link) = entry.display_link.as_ref().filter(|_| entry.shown) {
-                    link.request(frame_interval(&window));
-                }
-            }
-            // Already waiting for the display: one redraw answers both.
+            // Explicitly hidden windows can draw a first frame before they
+            // are shown. Shown but occluded windows redraw on exposure.
+            WindowChange::Redraw { .. } if entry.shown && entry.unseen => {}
+            // Already waiting for the timer: one redraw answers both.
             WindowChange::Redraw { .. } if entry.redraw_due.is_some() => {}
-            WindowChange::Redraw { .. } => {
-                let (tick, held) =
-                    next_refresh(entry.redraw_tick, Instant::now(), frame_interval(&window));
-                entry.redraw_tick = Some(tick);
-                if held {
-                    // `about_to_wait` asks when the time has come.
-                    entry.redraw_due = Some(tick);
-                } else {
-                    window.request_redraw();
-                }
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            WindowChange::Redraw { .. } if entry.shown && entry.display_link.is_some() => {
+                entry
+                    .display_link
+                    .as_ref()
+                    .unwrap()
+                    .request(frame_interval(&window));
             }
+            WindowChange::Redraw { .. } => entry.request_timed_redraw(),
             WindowChange::CursorShape(shape) => {
                 entry.guest_cursor = convert::cursor_icon(shape).into();
                 if entry.resize_edge.is_none() {
@@ -1254,12 +1270,19 @@ impl ApplicationHandler<()> for App {
                 entry.report_title_bar();
             }
         }
-        // Redraws that were asked for before the display was ready.
+        // Redraws paced by the timer or still waiting on AppKit.
         for entry in self.windows.values_mut() {
-            match entry.redraw_due {
-                Some(_) if entry.unseen => entry.redraw_due = None,
+            let due = entry.redraw_due;
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            let due = due.or_else(|| entry.display_link.as_ref()?.deadline());
+            match due {
+                Some(_) if entry.shown && entry.unseen => entry.redraw_due = None,
                 Some(due) if now >= due => {
                     entry.redraw_due = None;
+                    #[cfg(all(target_os = "macos", feature = "display-link"))]
+                    if let Some(link) = &entry.display_link {
+                        link.cancel();
+                    }
                     entry.window.request_redraw();
                 }
                 Some(due) => {
