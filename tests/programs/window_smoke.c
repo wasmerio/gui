@@ -31,6 +31,60 @@ static const WGUIEventHeader* expect(WGUIEventType type) {
     }
 }
 
+// Wait several display intervals so a redraw that was queued would arrive.
+static void expect_no_redraw(WGUIWindow window) {
+    uint64_t now = 0;
+    OK(wguiInstanceGetTime(instance, &now));
+    const uint64_t deadline = now + 125000000ull;
+    for (;;) {
+        size_t written = 0;
+        OK(wguiInstancePollEvents(instance, buffer, sizeof buffer, &written));
+        const WGUIEventHeader* event = wguiEventFirst(buffer, written);
+        for (; event != NULL; event = wguiEventNext(buffer, written, event))
+            CHECK(event->window != window || event->type != WGUIEventType_WindowRedrawRequested);
+        OK(wguiInstanceGetTime(instance, &now));
+        if (now >= deadline)
+            return;
+        WGUIWaitReasons reasons = 0;
+        OK(wguiInstanceWaitEvents(instance, deadline - now, &reasons));
+    }
+}
+
+static void check_hidden_redraw(WGUIWindowDescriptor descriptor) {
+    WGUIWindow window = 0;
+    descriptor.flags &= ~WGUIWindowFlags_Visible;
+    OK(wguiInstanceCreateWindow(instance, &descriptor, &window));
+    CHECK(expect(WGUIEventType_WindowResized)->window == window);
+
+    WGUIWindowState state = WGUI_WINDOW_STATE_INIT;
+    const WGUIWindowFlags visibility = WGUIWindowFlags_Visible | WGUIWindowFlags_Occluded;
+    OK(wguiWindowGetState(window, &state));
+    CHECK((state.flags & visibility) == WGUIWindowFlags_Occluded);
+    OK(wguiWindowRequestRedraw(window));
+    OK(wguiWindowRequestRedraw(window));
+    expect_no_redraw(window);
+
+    // Showing the window delivers an exposure without another guest request.
+    OK(wguiWindowSetFlags(window, WGUIWindowFlags_Visible, WGUIWindowFlags_Visible, NULL));
+    CHECK(expect(WGUIEventType_WindowRedrawRequested)->window == window);
+    OK(wguiWindowGetState(window, &state));
+    CHECK(state.flags & WGUIWindowFlags_Visible);
+
+    OK(wguiWindowSetFlags(window, WGUIWindowFlags_Visible, 0, NULL));
+    OK(wguiWindowGetState(window, &state));
+    while (state.flags & WGUIWindowFlags_Visible) {
+        expect(WGUIEventType_WindowFlagsChanged);
+        OK(wguiWindowGetState(window, &state));
+    }
+    CHECK((state.flags & visibility) == WGUIWindowFlags_Occluded);
+    OK(wguiWindowRequestRedraw(window));
+    expect_no_redraw(window);
+
+    OK(wguiWindowSetFlags(window, WGUIWindowFlags_Visible, WGUIWindowFlags_Visible, NULL));
+    CHECK(expect(WGUIEventType_WindowRedrawRequested)->window == window);
+    wguiWindowDestroy(window);
+}
+
 int main(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     OK(wguiCreateInstance(NULL, &instance));
@@ -83,18 +137,10 @@ int main(void) {
 
     wguiWindowDestroy(window);
 
-    // A guest can draw its first frame before showing its window.
-    descriptor.flags &= ~WGUIWindowFlags_Visible;
-    OK(wguiInstanceCreateWindow(instance, &descriptor, &window));
-    CHECK(expect(WGUIEventType_WindowResized)->window == window);
-    // The first event can be an exposure; the next request still needs a reply.
-    for (int request = 0; request < 2; request++) {
-        OK(wguiWindowRequestRedraw(window));
-        CHECK(expect(WGUIEventType_WindowRedrawRequested)->window == window);
-    }
-    OK(wguiWindowGetState(window, &state));
-    CHECK(!(state.flags & WGUIWindowFlags_Visible));
-    wguiWindowDestroy(window);
+    WGUIInstanceInfo info = WGUI_INSTANCE_INFO_INIT;
+    OK(wguiInstanceGetInfo(instance, &info));
+    if (info.hostKind == WGUIHostKind_Desktop)
+        check_hidden_redraw(descriptor);
 
     wguiInstanceDestroy(instance);
     printf("done\n");

@@ -164,9 +164,10 @@ Nothing touches the display until a guest opens a window, so a program that
 never does runs without one. In the Wasmer SDK, `wasmer_sdk::gui::run_main`
 does the same for an asynchronous `main`. On macOS 14 and later, enable the
 `display-link` feature and use `GuiMainThread::with_display_link` to pace
-guest redraw requests with the window's AppKit display link. Hidden windows
-use the timer, which also answers a redraw if AppKit misses three refresh
-intervals or the display link is unavailable.
+guest redraw requests with the window's AppKit display link. The timer
+answers a redraw if AppKit misses three refresh intervals or the display
+link is unavailable. Hidden native windows report occlusion and resume
+redrawing when shown.
 
 A window system of your own (a stream to a remote viewer, say) implements
 `wasmer_gui::system::WindowSystem`. The headless one is the smallest example,

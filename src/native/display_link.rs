@@ -125,13 +125,10 @@ impl DisplayLink {
         self.target.ivars().requested.deadline()
     }
 
-    /// Pause the link and report whether its redraw still needs an answer.
-    pub fn cancel(&self) -> bool {
-        if !self.target.ivars().requested.take() {
-            return false;
+    pub fn cancel(&self) {
+        if self.target.ivars().requested.take() {
+            self.link.setPaused(true);
         }
-        self.link.setPaused(true);
-        true
     }
 }
 
