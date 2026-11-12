@@ -426,6 +426,105 @@ fn a_frame_the_guest_drew_is_what_the_window_shows() {
     assert!(rig.events().is_empty());
 }
 
+fn capture_rig() -> Rig {
+    let system = HeadlessSystem::with_capture_on_request(manual());
+    Rig::on(
+        Arc::new(system.clone()),
+        system,
+        GuiPolicy::default(),
+        GuiLimits::default(),
+    )
+}
+
+#[test]
+fn headless_capture_tracks_metadata_before_the_first_capture() {
+    let rig = capture_rig();
+    let (window, user) = rig.window();
+    for width in [1, 2] {
+        assert_eq!(
+            present(
+                &rig,
+                window,
+                frame(width, 1),
+                &[0; 8][..width as usize * 4],
+                &[]
+            ),
+            Status::Success
+        );
+        let metadata = user.last_frame().expect("frame metadata");
+        assert_eq!(metadata.width, width);
+        assert!(metadata.pixels.is_empty());
+    }
+    assert_eq!(user.frames_presented(), 2);
+}
+
+#[test]
+fn headless_capture_requests_keep_pixels_until_the_next_capture() {
+    let rig = capture_rig();
+    let (window, user) = rig.window();
+    let pixels = frame(1, 1);
+
+    assert!(!user.captures());
+    let first = user.request_capture();
+    let overlapping = user.request_capture();
+    assert!(first.frame().is_none());
+    drop(first);
+    assert!(user.captures());
+    assert_eq!(
+        present(&rig, window, pixels.clone(), &[0, 0, 255, 255], &[]),
+        Status::Success
+    );
+    assert_eq!(
+        overlapping.frame().expect("new capture").pixels,
+        [255, 0, 0, 255]
+    );
+    drop(overlapping);
+    assert!(!user.captures());
+
+    // A frame started before the request can arrive without a GPU readback.
+    let next = user.request_capture();
+    user.present(crate::headless::PresentedFrame {
+        width: 2,
+        height: 1,
+        bgra: false,
+        pixels: Vec::new(),
+    });
+    assert_eq!(user.frames_presented(), 2);
+    assert!(next.frame().is_none());
+    assert_eq!(
+        user.last_frame().expect("previous capture").pixels,
+        [255, 0, 0, 255]
+    );
+    assert_eq!(
+        present(&rig, window, pixels, &[255, 0, 0, 255], &[]),
+        Status::Success
+    );
+    assert_eq!(user.frames_presented(), 3);
+    assert_eq!(
+        next.frame().expect("fresh capture").pixels,
+        [0, 0, 255, 255]
+    );
+}
+
+#[cfg(feature = "webgpu")]
+#[test]
+fn headless_surface_checks_whether_capture_is_requested_on_each_frame() {
+    use wasmer_webgpu::surface::SurfaceTarget;
+
+    let rig = capture_rig();
+    let (_, user) = rig.window();
+    let surfaces = rig.system.surfaces(None);
+    let Some(SurfaceTarget::Headless(sink)) = surfaces.open(user.surface_selector()) else {
+        panic!("expected the headless window's surface");
+    };
+
+    assert!(!sink.wants_pixels());
+    let capture = user.request_capture();
+    assert!(sink.wants_pixels());
+    drop(capture);
+    assert!(!sink.wants_pixels());
+}
+
 #[test]
 fn a_frame_that_does_not_add_up_is_refused() {
     let rig = Rig::new();
@@ -537,6 +636,76 @@ fn a_window_asked_to_redraw_is_told_when_the_display_refreshes() {
     );
     rig.system.advance(100_000_000);
     assert_eq!(redraws(&rig), 1);
+}
+
+#[test]
+fn headless_windows_redraw_only_while_shown() {
+    use crate::headless::HeadlessRedraws;
+
+    for redraws in [HeadlessRedraws::Immediate, HeadlessRedraws::Paced] {
+        let rig = Rig::with(
+            HeadlessOptions {
+                redraws,
+                ..manual()
+            },
+            GuiPolicy::default(),
+            GuiLimits::default(),
+        );
+        let window = rig
+            .host()
+            .create_window(rig.instance, Some(&WindowDescriptor::default()))
+            .expect("an initially hidden window");
+        assert_eq!(rig.names(), ["WindowResized"]);
+
+        let state = rig.host().window(window).expect("alive");
+        let visibility = window_flags::VISIBLE | window_flags::OCCLUDED;
+        let flags = || state.shared.snapshot.read().flags & visibility;
+        let request_redraw = || {
+            assert_eq!(
+                rig.call(|host, cx| host.window_request_redraw(cx, window)),
+                Ok(Status::Success)
+            );
+        };
+        let show = |visible| {
+            assert_eq!(
+                rig.call(|host, cx| {
+                    host.window_set_flags(
+                        cx,
+                        window,
+                        window_flags::VISIBLE,
+                        if visible { window_flags::VISIBLE } else { 0 },
+                        OutPtr::new(0),
+                    )
+                }),
+                Ok(Status::Success)
+            );
+        };
+
+        assert_eq!(flags(), window_flags::OCCLUDED);
+        request_redraw();
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+
+        show(true);
+        assert_eq!(flags(), window_flags::VISIBLE);
+        assert_eq!(rig.names(), ["WindowFlagsChanged", "WindowRedrawRequested"]);
+        // Showing an already visible window is not a second exposure.
+        show(true);
+        assert!(rig.events().is_empty());
+
+        // Hide before the redraw is read or the paced refresh arrives.
+        request_redraw();
+        show(false);
+        assert_eq!(flags(), window_flags::OCCLUDED);
+        assert_eq!(rig.names(), ["WindowFlagsChanged"]);
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+
+        show(true);
+        assert_eq!(rig.names(), ["WindowFlagsChanged", "WindowRedrawRequested"]);
+        rig.system.advance(20_000_000);
+        assert!(rig.events().is_empty());
+    }
 }
 
 #[test]

@@ -10,7 +10,7 @@
 //! else, and what the tests of this crate run on, which makes it the
 //! reference for how events are ordered.
 
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::time::{Duration, Instant};
 
@@ -79,9 +79,8 @@ pub struct HeadlessOptions {
     pub clipboard_sync: bool,
     pub clock: HeadlessClock,
     pub redraws: HeadlessRedraws,
-    /// Whether the frames guests present to windows are kept, for
-    /// [`HeadlessWindow::last_frame`]. Reading a frame back from the GPU
-    /// costs a copy, so they are only counted unless this is on.
+    /// Whether [`HeadlessSystem::new`] keeps frame pixels for
+    /// [`HeadlessWindow::last_frame`]. Frames are counted either way.
     pub capture_frames: bool,
 }
 
@@ -142,6 +141,7 @@ impl State {
 
 struct Inner {
     options: HeadlessOptions,
+    capture_on_request: bool,
     reduced_motion: AtomicU32,
     started: Instant,
     /// Nanoseconds, for the manual clock.
@@ -168,8 +168,14 @@ impl Inner {
     fn refresh(&self) {
         let windows = lock(&self.state).windows.clone();
         for window in windows {
+            if !window.redraw_wanted.load(Ordering::Acquire) {
+                continue;
+            }
+            // Check again under the sink lock: hiding the window cancels
+            // its pending redraw under this same lock.
+            let mut sink = lock(&window.sink);
             if window.redraw_wanted.swap(false, Ordering::AcqRel) {
-                lock(&window.sink).redraw_requested();
+                sink.redraw_requested();
             }
         }
     }
@@ -368,6 +374,8 @@ impl PresentedFrame {
 #[derive(Default)]
 struct Frames {
     presented: u64,
+    /// The presentation number of the most recent frame with pixels.
+    last_capture: u64,
     last: Option<PresentedFrame>,
 }
 
@@ -384,11 +392,38 @@ struct WindowState {
     requests: Mutex<Vec<String>>,
     /// What the guest drew on it.
     frames: Mutex<Frames>,
+    /// Outstanding [`HeadlessWindow::request_capture`]s.
+    capture_requests: AtomicUsize,
     /// Asked to redraw, and waiting for the display to refresh.
     redraw_wanted: AtomicBool,
 }
 
 impl WindowState {
+    /// Whether a frame presented now is to be captured.
+    fn captures(&self) -> bool {
+        self.system.upgrade().is_some_and(|system| {
+            system.options.capture_frames
+                && (!system.capture_on_request || self.capture_requests.load(Ordering::Acquire) > 0)
+        })
+    }
+
+    /// Records a presented frame. Capturing on request, a frame without
+    /// pixels (one nobody asked for) leaves the last captured one in place.
+    fn present(&self, frame: PresentedFrame) {
+        let on_request = self
+            .system
+            .upgrade()
+            .is_some_and(|system| system.capture_on_request);
+        let mut frames = lock(&self.frames);
+        frames.presented += 1;
+        if !frame.pixels.is_empty() {
+            frames.last_capture = frames.presented;
+        } else if on_request && frames.last_capture != 0 {
+            return;
+        }
+        frames.last = Some(frame);
+    }
+
     fn note(&self, request: String) {
         lock(&self.requests).push(request);
     }
@@ -510,11 +545,28 @@ impl HostWindow for Window {
             }
             WindowChange::Flags { mask, values } => {
                 window.note(format!("flags {values:#x} of {mask:#x}"));
-                {
+                let mut sink = lock(&window.sink);
+                let was_shown = {
                     let mut model = lock(&window.model);
+                    let was_shown = model.flags & window_flags::VISIBLE != 0;
                     model.flags = (model.flags & !mask) | (values & mask);
+                    was_shown
+                };
+                if mask & window_flags::VISIBLE == 0 {
+                    sink.flags(mask, values);
+                } else if values & window_flags::VISIBLE != 0 {
+                    sink.flags(mask | window_flags::OCCLUDED, values);
+                    if !was_shown {
+                        sink.redraw_requested();
+                    }
+                } else {
+                    window.redraw_wanted.store(false, Ordering::Release);
+                    sink.discard_pending_redraw();
+                    sink.flags(
+                        mask | window_flags::OCCLUDED,
+                        values | window_flags::OCCLUDED,
+                    );
                 }
-                lock(&window.sink).flags(mask, values);
             }
             WindowChange::Fullscreen { options, request } => {
                 let mode = options.as_ref().map_or(FullscreenMode::None, |o| o.mode);
@@ -553,12 +605,19 @@ impl HostWindow for Window {
             WindowChange::Attention(level) => window.note(format!("attention {level:?}")),
             WindowChange::Redraw { .. } => {
                 window.note("redraw".to_owned());
+                let mut sink = lock(&window.sink);
+                if lock(&window.model).flags & window_flags::VISIBLE == 0 {
+                    return;
+                }
                 match window.system.upgrade() {
                     Some(system) if system.options.redraws == HeadlessRedraws::Paced => {
                         window.redraw_wanted.store(true, Ordering::Release);
+                        // If no display thread can be started, this can
+                        // call refresh synchronously.
+                        drop(sink);
                         system.redraw_wanted();
                     }
-                    _ => lock(&window.sink).redraw_requested(),
+                    _ => sink.redraw_requested(),
                 }
             }
             WindowChange::CursorShape(shape) => {
@@ -638,13 +697,8 @@ impl HostWindow for Window {
             }
             WindowChange::Pixels(frame) => {
                 window.note(format!("pixels {}x{}", frame.width, frame.height));
-                let capture = window
-                    .system
-                    .upgrade()
-                    .is_some_and(|system| system.options.capture_frames);
-                let mut frames = lock(&window.frames);
-                frames.presented += 1;
-                frames.last = Some(PresentedFrame {
+                let capture = window.captures();
+                window.present(PresentedFrame {
                     width: frame.width,
                     height: frame.height,
                     bgra: false,
@@ -667,6 +721,35 @@ impl Drop for Window {
                 .windows
                 .retain(|window| !Arc::ptr_eq(window, &self.0));
         }
+    }
+}
+
+/// Frames presented to a window are captured while this lives; see
+/// [`HeadlessWindow::request_capture`].
+#[must_use = "dropping the guard ends the capture request"]
+pub struct CaptureRequest {
+    state: Arc<WindowState>,
+    presented_before_request: u64,
+}
+
+impl CaptureRequest {
+    /// The latest frame with pixels delivered since this request began.
+    pub fn frame(&self) -> Option<PresentedFrame> {
+        let frames = lock(&self.state.frames);
+        if frames.last_capture <= self.presented_before_request {
+            return None;
+        }
+        frames
+            .last
+            .as_ref()
+            .filter(|frame| !frame.pixels.is_empty())
+            .cloned()
+    }
+}
+
+impl Drop for CaptureRequest {
+    fn drop(&mut self) {
+        self.state.capture_requests.fetch_sub(1, Ordering::AcqRel);
     }
 }
 
@@ -717,16 +800,33 @@ impl HeadlessWindow {
         lock(&self.state.frames).presented
     }
 
-    /// The frame the guest presented last, if the system captures frames.
+    /// The latest presented frame, or the latest frame with pixels when
+    /// capturing on request. Use [`CaptureRequest::frame`] for a fresh capture.
     pub fn last_frame(&self) -> Option<PresentedFrame> {
         lock(&self.state.frames).last.clone()
     }
 
     /// A guest presented a frame. For whatever draws on the window.
     pub fn present(&self, frame: PresentedFrame) {
-        let mut frames = lock(&self.state.frames);
-        frames.presented += 1;
-        frames.last = Some(frame);
+        self.state.present(frame);
+    }
+
+    /// Whether the renderer should include pixels with its next presentation.
+    pub fn captures(&self) -> bool {
+        self.state.captures()
+    }
+
+    /// Enable capture while the guard lives on a system created with
+    /// [`HeadlessSystem::with_capture_on_request`]. Take the guard before
+    /// asking the guest to draw, then read the result with [`CaptureRequest::frame`].
+    pub fn request_capture(&self) -> CaptureRequest {
+        // Publish the request and record its baseline before a frame can land.
+        let frames = lock(&self.state.frames);
+        self.state.capture_requests.fetch_add(1, Ordering::AcqRel);
+        CaptureRequest {
+            state: Arc::clone(&self.state),
+            presented_before_request: frames.presented,
+        }
     }
 
     /// Reports anything a window system can, in its own words.
@@ -799,10 +899,22 @@ impl Default for HeadlessSystem {
 
 impl HeadlessSystem {
     pub fn new(options: HeadlessOptions) -> Self {
+        Self::create(options, false)
+    }
+
+    /// Capture frame pixels only while a [`HeadlessWindow::request_capture`]
+    /// guard is held. This enables [`HeadlessOptions::capture_frames`].
+    pub fn with_capture_on_request(mut options: HeadlessOptions) -> Self {
+        options.capture_frames = true;
+        Self::create(options, true)
+    }
+
+    fn create(options: HeadlessOptions, capture_on_request: bool) -> Self {
         Self {
             inner: Arc::new(Inner {
                 reduced_motion: AtomicU32::new(options.reduced_motion as u32),
                 options,
+                capture_on_request,
                 started: Instant::now(),
                 time: AtomicU64::new(0),
                 next_window: AtomicU64::new(1),
@@ -1104,7 +1216,12 @@ impl WindowSystem for HeadlessSystem {
 
         sink.display_changed(DISPLAY);
         sink.theme_changed(options.theme);
-        sink.flags(window_flags::REQUESTABLE, attributes.flags);
+        let flags = if attributes.flags & window_flags::VISIBLE != 0 {
+            attributes.flags
+        } else {
+            attributes.flags | window_flags::OCCLUDED
+        };
+        sink.flags(window_flags::REQUESTABLE | window_flags::OCCLUDED, flags);
         if let Some((x, y)) = attributes.position {
             let position = |value: i32| {
                 if attributes.logical_units {
@@ -1131,6 +1248,7 @@ impl WindowSystem for HeadlessSystem {
             model: Mutex::new(model),
             requests: Mutex::new(Vec::new()),
             frames: Mutex::new(Frames::default()),
+            capture_requests: AtomicUsize::new(0),
             redraw_wanted: AtomicBool::new(false),
         });
         state.windows.push(Arc::clone(&window));

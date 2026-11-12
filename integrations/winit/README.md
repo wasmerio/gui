@@ -84,6 +84,10 @@ its other platforms, and Cargo resolves those too.)
 | raw-window-handle | `RawWindowHandle::Web` with the host's handle of the window as its id: raw-window-handle has nothing for WASIX, and the web's pair is the one that is plain data. softbuffer's backend here reads it |
 | Ctrl-C in the program's terminal | SIGINT, and SIGTERM, end the program at once with status 128 plus the signal's number, unless the program installed a handler itself. The backend installs this one because wasix-libc's default actions do not work ([`backend/signals.rs`](backend/signals.rs)) |
 
+On native and headless hosts, `with_visible(false)` starts the window
+occluded. Call `set_visible(true)` before waiting for the first
+`RedrawRequested` event.
+
 `winit::platform::wasix` adds `WindowAttributesExtWasix::with_target` (the
 target a window adopts: one of the page's canvases, by the name the embedder
 gave it), `WindowExtWasix::surface_selector` (what a WebGPU surface for the

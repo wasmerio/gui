@@ -162,12 +162,21 @@ fn main() -> anyhow::Result<()> {
 
 Nothing touches the display until a guest opens a window, so a program that
 never does runs without one. In the Wasmer SDK, `wasmer_sdk::gui::run_main`
-does the same for an asynchronous `main`.
+does the same for an asynchronous `main`. On macOS 14 and later, enable the
+`display-link` feature and use `GuiMainThread::with_display_link` to pace
+guest redraw requests with the window's AppKit display link. The timer
+answers a redraw if AppKit misses three refresh intervals or the display
+link is unavailable. Native and headless hosts report hidden windows as
+occluded. Show the window before waiting for a redraw. The host queues an
+exposure once the window can be seen.
 
 A window system of your own (a stream to a remote viewer, say) implements
 `wasmer_gui::system::WindowSystem`. The headless one is the smallest example,
 and lets its embedder watch windows open (`HeadlessSystem::on_window`) and
-keep what is drawn on them.
+keep what is drawn on them. For occasional screenshots, use
+`HeadlessSystem::with_capture_on_request`. Hold the guard from
+`HeadlessWindow::request_capture` while asking the guest to draw, then use
+`CaptureRequest::frame` to read the new capture.
 
 ### Windows that are views of your interface
 

@@ -679,6 +679,11 @@ impl WindowSink {
         self.redraw_with_reason(event_flags::EXPOSURE);
     }
 
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn discard_pending_redraw(&self) {
+        self.window.redraw_slot().take();
+    }
+
     /// Answers the guest's `wguiWindowRequestRedraw`; on its own, what the
     /// window showed is still there. `exposure`: the window also has to be
     /// shown whole again, told in the same redraw. Only a window system that

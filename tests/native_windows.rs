@@ -4,6 +4,8 @@
 //! keeps for itself, so this file has a `main` of its own. It opens windows
 //! on the screen, so it only runs when `WGUI_TEST_WINDOWS` is set
 //! (`make test-windows`); the windows open behind whatever is in front.
+//! With the `display-link` feature, set `WGUI_TEST_DISPLAY_LINK=1` to
+//! exercise AppKit redraw pacing.
 //!
 //! What a program prints here must be what it prints on the headless window
 //! system (`tests/expected`): that the two agree is the test.
@@ -84,10 +86,18 @@ fn main() -> ExitCode {
         println!("skipped: set WGUI_TEST_WINDOWS=1 to open real windows");
         return ExitCode::SUCCESS;
     }
-    let (main_thread, windows) = GuiMainThread::with_options(NativeOptions {
+    let options = NativeOptions {
         close: CloseBehavior::RequestThenEnd(Duration::from_secs(2)),
         activate: false,
-    });
+    };
+    #[cfg(feature = "display-link")]
+    let (main_thread, windows) = if std::env::var_os("WGUI_TEST_DISPLAY_LINK").is_some() {
+        GuiMainThread::with_display_link(options)
+    } else {
+        GuiMainThread::with_options(options)
+    };
+    #[cfg(not(feature = "display-link"))]
+    let (main_thread, windows) = GuiMainThread::with_options(options);
     #[cfg(feature = "webgpu")]
     let webgpu = wasmer_webgpu::WebGpuCtx::builder()
         .force_fallback_adapter(std::env::var_os("WEBGPU_TEST_FALLBACK_ADAPTER").is_some())

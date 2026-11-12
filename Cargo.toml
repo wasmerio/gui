@@ -28,6 +28,14 @@ wasix = ["dep:wasmer-wasix"]
 # Native windows, through winit. Its event loop needs the process's main
 # thread: see `native::GuiMainThread`.
 winit = ["dep:winit", "dep:objc2", "dep:objc2-app-kit", "dep:objc2-foundation", "dep:block2"]
+# Hardware-paced redraw requests on macOS 14 and later.
+display-link = [
+  "winit",
+  "dep:raw-window-handle",
+  "dep:objc2-quartz-core",
+  "objc2-app-kit/objc2-quartz-core",
+  "objc2-foundation/NSRunLoop",
+]
 # The system clipboard, for native windows.
 clipboard = ["dep:arboard"]
 # Lets guests without a GPU draw in native windows
@@ -95,6 +103,8 @@ objc2 = { version = "0.6", optional = true }
 block2 = { version = "0.6", optional = true }
 objc2-app-kit = { version = "0.3", default-features = false, optional = true, features = ["std", "NSAccessibility", "NSWorkspace", "NSApplication", "NSBitmapImageRep", "NSButton", "NSColorSpace", "NSControl", "NSEvent", "NSGraphics", "NSImage", "NSImageRep", "NSResponder", "NSView", "NSWindow"] }
 objc2-foundation = { version = "0.3", default-features = false, optional = true, features = ["std", "block2", "NSNotification", "NSOperation", "NSGeometry", "NSString", "NSUserDefaults"] }
+
+objc2-quartz-core = { version = "0.3", default-features = false, optional = true, features = ["std", "CADisplayLink", "CAFrameRateRange"] }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 js-sys = { version = "0.3", optional = true }

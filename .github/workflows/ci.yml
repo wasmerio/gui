@@ -174,9 +174,12 @@ jobs:
           ref: ${{ env.WEBGPU_REF }}
           path: webgpu
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: gui
       # The runners have no window server session to open windows in, and no
-      # Metal device: what is checked here is that everything builds.
-      - run: cargo build --features cli,winit,clipboard,webgpu,pixels --all-targets
+      # Metal device: check that the native paths build and lint.
+      - run: cargo build --features cli,display-link,clipboard,webgpu,pixels --all-targets
+      - run: cargo clippy --features cli,display-link,clipboard,webgpu,pixels --all-targets -- -D warnings

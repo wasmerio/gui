@@ -23,8 +23,37 @@ use crate::system::*;
 /// was then.
 type DragPress = (Instant, (f64, f64), Option<(i32, i32)>);
 
+#[derive(Default)]
+struct Visibility {
+    /// Whether the guest asked for the window to be shown.
+    shown: bool,
+    /// Retain platform reports even while the guest has hidden the window.
+    platform_occluded: bool,
+    /// The surface's report is provisional until the platform reports again.
+    surface_unseen: bool,
+}
+
+impl Visibility {
+    fn is_occluded(&self) -> bool {
+        !self.shown || self.platform_occluded || self.surface_unseen
+    }
+
+    fn set_shown(&mut self, shown: bool) {
+        self.shown = shown;
+        self.surface_unseen = false;
+    }
+
+    fn report_platform(&mut self, occluded: bool) {
+        self.platform_occluded = occluded;
+        self.surface_unseen = false;
+    }
+}
+
 /// One window, as the loop keeps it.
 struct Entry {
+    // Invalidate the display link before releasing the window.
+    #[cfg(all(target_os = "macos", feature = "display-link"))]
+    display_link: Option<super::display_link::DisplayLink>,
     key: WindowKey,
     window: Arc<Window>,
     /// The name a surface for the window is created with.
@@ -42,11 +71,7 @@ struct Entry {
     /// The modifiers last reported for the window.
     modifiers: u32,
     focused: bool,
-    /// Whether the guest has the window shown. That is what it is told, not
-    /// what the window system says at the moment: X11 puts a window on
-    /// screen when it gets to it, which is after the window was made, and
-    /// whether anything of a window can be seen is another flag.
-    shown: bool,
+    visibility: Visibility,
     /// What the guest wants of the cursor, and whether it has it right now.
     grab: CursorGrab,
     grabbed: bool,
@@ -54,15 +79,10 @@ struct Entry {
     /// When the user asked to close the window, and how many records the
     /// guest had read by then.
     close_asked: Option<(Instant, u64)>,
-    /// winit answers a request to redraw at once, however often it is asked
-    /// and whether or not anybody can see the window. A guest is to be told
-    /// once per refresh of the display, and not at all while its window
-    /// cannot be seen, so requests are held back here: the refresh the last
-    /// request was for, when a request that came before the next one is due,
-    /// and whether the window is known to be out of sight.
+    /// The refresh the last redraw request was for, and when a pending
+    /// timer-paced request is due.
     redraw_tick: Option<Instant>,
     redraw_due: Option<Instant>,
-    unseen: bool,
     /// What the window shows when its guest draws it without a GPU.
     #[cfg(feature = "pixels")]
     painted: Option<super::pixels::Painted>,
@@ -103,6 +123,57 @@ struct Entry {
 }
 
 impl Entry {
+    fn is_occluded(&self) -> bool {
+        self.visibility.is_occluded()
+    }
+
+    fn cancel_redraw(&mut self) {
+        self.redraw_due = None;
+        #[cfg(all(target_os = "macos", feature = "display-link"))]
+        if let Some(link) = &self.display_link {
+            link.cancel();
+        }
+    }
+
+    fn expose(&mut self) {
+        self.cancel_redraw();
+        self.redraw_tick = Some(Instant::now());
+        self.sink.redraw_requested();
+    }
+
+    fn report_occlusion_change(&mut self, was_occluded: bool) {
+        let occluded = self.is_occluded();
+        if occluded == was_occluded {
+            return;
+        }
+        if occluded {
+            self.cancel_redraw();
+            self.sink.discard_pending_redraw();
+        }
+        self.sink.flags(
+            window_flags::OCCLUDED,
+            if occluded { window_flags::OCCLUDED } else { 0 },
+        );
+        if !occluded {
+            self.expose();
+        }
+    }
+
+    fn request_timed_redraw(&mut self) {
+        let (tick, held) = next_refresh(
+            self.redraw_tick,
+            Instant::now(),
+            frame_interval(&self.window),
+        );
+        self.redraw_tick = Some(tick);
+        if held {
+            // `about_to_wait` asks when the time has come.
+            self.redraw_due = Some(tick);
+        } else {
+            self.window.request_redraw();
+        }
+    }
+
     /// Tells the guest, and whoever draws on the window, its size.
     fn resized(&mut self, width: u32, height: u32, scale_factor: f64) {
         self.size.store(
@@ -121,7 +192,8 @@ impl Entry {
                 flags |= flag;
             }
         };
-        set(self.shown, window_flags::VISIBLE);
+        set(self.visibility.shown, window_flags::VISIBLE);
+        set(self.is_occluded(), window_flags::OCCLUDED);
         set(window.is_resizable(), window_flags::RESIZABLE);
         set(window.is_decorated(), window_flags::DECORATED);
         set(
@@ -134,6 +206,7 @@ impl Entry {
             && window.fullscreen().is_none();
         self.sink.flags(
             window_flags::VISIBLE
+                | window_flags::OCCLUDED
                 | window_flags::RESIZABLE
                 | window_flags::DECORATED
                 | window_flags::MINIMIZED
@@ -575,9 +648,16 @@ impl App {
         let size = window.inner_size();
         let scale_factor = window.scale_factor();
         let selector = new_surface_selector();
+        let window = Arc::new(window);
         let mut entry = Entry {
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            display_link: if self.shared.display_link {
+                super::display_link::DisplayLink::new(&window)
+            } else {
+                None
+            },
             key,
-            window: Arc::new(window),
+            window,
             selector: selector.clone(),
             size: Arc::default(),
             seen_said: Arc::default(),
@@ -585,14 +665,16 @@ impl App {
             cursor: (0.0, 0.0),
             modifiers: 0,
             focused: false,
-            shown: flag(window_flags::VISIBLE),
+            visibility: Visibility {
+                shown: flag(window_flags::VISIBLE),
+                ..Visibility::default()
+            },
             grab: CursorGrab::None,
             grabbed: false,
             cursor_visible: true,
             close_asked: None,
             redraw_tick: None,
             redraw_due: None,
-            unseen: false,
             #[cfg(feature = "pixels")]
             painted: None,
             title_bar,
@@ -723,8 +805,20 @@ impl App {
             }
             WindowChange::Flags { mask, values } => {
                 let asked = |flag: u64| (mask & flag != 0).then_some(values & flag != 0);
+                let was_shown = entry.visibility.shown;
                 if let Some(visible) = asked(window_flags::VISIBLE) {
-                    entry.shown = visible;
+                    if visible != was_shown {
+                        entry.visibility.set_shown(visible);
+                        // Start a new visibility observation. A GPU report
+                        // from before this change cannot describe the new state.
+                        entry
+                            .seen_said
+                            .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+                        if !visible {
+                            entry.cancel_redraw();
+                            entry.sink.discard_pending_redraw();
+                        }
+                    }
                     window.set_visible(visible);
                 }
                 if let Some(resizable) = asked(window_flags::RESIZABLE) {
@@ -754,8 +848,15 @@ impl App {
                 // The level is not something winit reports back.
                 let levels = window_flags::ALWAYS_ON_TOP | window_flags::ALWAYS_ON_BOTTOM;
                 entry.sink.flags(mask & levels, values);
+                let showing = !was_shown && entry.visibility.shown;
+                if showing && let Some(occluded) = occluded_on_show(&window) {
+                    entry.visibility.report_platform(occluded);
+                }
                 entry.report_state();
                 entry.report_title_bar();
+                if showing && !entry.is_occluded() {
+                    entry.expose();
+                }
             }
             WindowChange::Fullscreen { options, request } => {
                 let status = match &options {
@@ -779,21 +880,19 @@ impl App {
                 AttentionLevel::Informational => Some(UserAttentionType::Informational),
                 AttentionLevel::Critical => Some(UserAttentionType::Critical),
             }),
-            // A window out of sight is told to redraw when it is seen again.
-            WindowChange::Redraw { .. } if entry.unseen => {}
-            // Already waiting for the display: one redraw answers both.
+            // The next exposure restarts a guest that draws on request.
+            WindowChange::Redraw { .. } if entry.is_occluded() => {}
+            // Already waiting for the timer: one redraw answers both.
             WindowChange::Redraw { .. } if entry.redraw_due.is_some() => {}
-            WindowChange::Redraw { .. } => {
-                let (tick, held) =
-                    next_refresh(entry.redraw_tick, Instant::now(), frame_interval(&window));
-                entry.redraw_tick = Some(tick);
-                if held {
-                    // `about_to_wait` asks when the time has come.
-                    entry.redraw_due = Some(tick);
-                } else {
-                    window.request_redraw();
-                }
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            WindowChange::Redraw { .. } if entry.display_link.is_some() => {
+                entry
+                    .display_link
+                    .as_ref()
+                    .unwrap()
+                    .request(frame_interval(&window));
             }
+            WindowChange::Redraw { .. } => entry.request_timed_redraw(),
             WindowChange::CursorShape(shape) => {
                 entry.guest_cursor = convert::cursor_icon(shape).into();
                 if entry.resize_edge.is_none() {
@@ -927,12 +1026,12 @@ impl App {
                     // Believed only while the window system has said nothing
                     // since: what it says is newer, and is what stands.
                     if let Some(entry) = self.entry(window)
+                        && entry.visibility.shown
                         && entry.seen_said.load(std::sync::atomic::Ordering::Acquire) == said
                     {
-                        entry.unseen = true;
-                        entry
-                            .sink
-                            .flags(window_flags::OCCLUDED, window_flags::OCCLUDED);
+                        let was_occluded = entry.is_occluded();
+                        entry.visibility.surface_unseen = true;
+                        entry.report_occlusion_change(was_occluded);
                     }
                 }
                 #[cfg(feature = "webgpu")]
@@ -1023,7 +1122,9 @@ impl ApplicationHandler<()> for App {
                 // The frame on show is stretched to the new size until the
                 // guest has drawn one for it.
                 #[cfg(feature = "pixels")]
-                if let Some(painted) = &mut entry.painted {
+                if !entry.is_occluded()
+                    && let Some(painted) = &mut entry.painted
+                {
                     painted.show();
                 }
                 if let Some(display) = display {
@@ -1076,25 +1177,19 @@ impl ApplicationHandler<()> for App {
                 entry
                     .seen_said
                     .fetch_add(1, std::sync::atomic::Ordering::AcqRel);
-                entry.sink.flags(
-                    window_flags::OCCLUDED,
-                    if occluded { window_flags::OCCLUDED } else { 0 },
-                );
-                entry.unseen = occluded;
-                if !occluded {
-                    // What was drawn while nobody could see it went nowhere,
-                    // and a guest that draws only when asked is waiting.
-                    entry.redraw_tick = Some(Instant::now());
-                    entry.redraw_due = None;
-                    entry.sink.redraw_requested();
-                }
+                // AppKit's queued notification may predate a hide/show.
+                #[cfg(target_os = "macos")]
+                let occluded = appkit_occlusion(&entry.window).unwrap_or(occluded);
+                let was_occluded = entry.is_occluded();
+                entry.visibility.report_platform(occluded);
+                entry.report_occlusion_change(was_occluded);
             }
             WindowEvent::ThemeChanged(theme) => {
                 entry.sink.theme_changed(convert::theme(Some(theme)));
                 // An appearance change may lay the title bar out again.
                 entry.report_title_bar();
             }
-            WindowEvent::RedrawRequested => {
+            WindowEvent::RedrawRequested if !entry.is_occluded() => {
                 #[cfg(feature = "pixels")]
                 if let Some(painted) = &mut entry.painted {
                     painted.show();
@@ -1226,20 +1321,23 @@ impl ApplicationHandler<()> for App {
                 entry.report_title_bar();
             }
         }
-        // Redraws that were asked for before the display was ready.
+        // Redraws paced by the timer or still waiting on AppKit.
         for entry in self.windows.values_mut() {
-            match entry.redraw_due {
-                Some(_) if entry.unseen => entry.redraw_due = None,
+            if entry.is_occluded() {
+                continue;
+            }
+            let due = entry.redraw_due;
+            #[cfg(all(target_os = "macos", feature = "display-link"))]
+            let due = due.or_else(|| entry.display_link.as_ref()?.deadline());
+            match due {
                 Some(due) if now >= due => {
-                    entry.redraw_due = None;
+                    entry.cancel_redraw();
                     entry.window.request_redraw();
                 }
                 Some(due) => {
                     sooner(due);
-                    // Shown, and in sight: the redraws of windows out of
-                    // sight were let go of above.
                     #[cfg(target_os = "macos")]
-                    if self.ready && entry.shown {
+                    if self.ready {
                         redraw_next = Some(redraw_next.map_or(due, |other| other.min(due)));
                     }
                 }
@@ -1275,6 +1373,33 @@ impl ApplicationHandler<()> for App {
             Some(deadline) => ControlFlow::WaitUntil(deadline),
             None => ControlFlow::Wait,
         });
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn occluded_on_show(window: &Window) -> Option<bool> {
+    appkit_occlusion(window)
+}
+
+#[cfg(target_os = "macos")]
+fn appkit_occlusion(window: &Window) -> Option<bool> {
+    use objc2_app_kit::NSWindowOcclusionState;
+    let window = super::appkit_window(window)?;
+    Some(
+        !window
+            .occlusionState()
+            .contains(NSWindowOcclusionState::Visible),
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn occluded_on_show(window: &Window) -> Option<bool> {
+    use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
+    match window.window_handle().ok()?.as_raw() {
+        // Mapping is asynchronous. VisibilityNotify reports even a window
+        // mapped fully covered, so wait for that report before exposing it.
+        RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => Some(true),
+        _ => None,
     }
 }
 
@@ -1327,6 +1452,30 @@ impl Drop for Entry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn showing_preserves_platform_occlusion_until_exposed() {
+        let mut visibility = Visibility::default();
+        visibility.report_platform(true);
+        visibility.set_shown(true);
+        assert!(visibility.is_occluded());
+        visibility.report_platform(false);
+        assert!(!visibility.is_occluded());
+    }
+
+    #[test]
+    fn showing_discards_provisional_surface_occlusion() {
+        let mut visibility = Visibility {
+            shown: true,
+            surface_unseen: true,
+            ..Visibility::default()
+        };
+        assert!(visibility.is_occluded());
+        visibility.set_shown(false);
+        assert!(visibility.is_occluded());
+        visibility.set_shown(true);
+        assert!(!visibility.is_occluded());
+    }
 
     #[test]
     fn redraws_keep_to_the_refreshes_of_the_display() {
